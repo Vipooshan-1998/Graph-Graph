@@ -376,9 +376,11 @@ class CrossValDataset(Dataset):
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('feature_path positive: ', feature_path.split('/'))
         else:
             img_file = os.path.join(self.img_dataset_path, "negative",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('feature_path negative: ', feature_path.split('/'))
         all_img_feat = self.transform(np.load(img_file)).squeeze(0)
 
         # Reading frame stats file
