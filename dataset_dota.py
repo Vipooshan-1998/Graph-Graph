@@ -372,6 +372,10 @@ class CrossValDataset(Dataset):
         curr_vid_label = int(all_data['labels'][1])
         logging.info("all_data[labels]: ", all_data['labels'])
         logging.info('curr_vid_label: ', curr_vid_label)
+        if curr_vid_label:
+            curr_vid_label = 0
+        else
+            curr_vid_label = 1
         if curr_vid_label > 0:
             curr_toa = self.get_toa_all(video_name)
         else:
