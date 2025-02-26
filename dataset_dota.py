@@ -372,6 +372,7 @@ class CrossValDataset(Dataset):
         curr_vid_label = int(all_data['labels'][1])
         logging.info("all_data[labels]: ", all_data['labels'])
         logging.info('curr_vid_label: ', curr_vid_label)
+        logging.info('feature_path.split: ', feature_path.split('/'))
         if curr_vid_label:
             curr_vid_label = 0
         else:
