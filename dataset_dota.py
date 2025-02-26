@@ -373,6 +373,7 @@ class CrossValDataset(Dataset):
             curr_toa = self.n_frames + 1
 
         # Reading frame (i3d) features for the frames
+        print('-------------------------------------------------------------------------------')
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
