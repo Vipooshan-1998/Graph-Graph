@@ -19,7 +19,7 @@ import spacy
 
 import logging
 # Configure logging
-logging.basicConfig(level=logging.INFO)  # Set log level
+# logging.basicConfig(level=logging.INFO)  # Set log level
 
 class Dataset(Dataset):
     def __init__(self, dataset_path, img_dataset_path, split_path, ref_interval, objmap_file, training):
