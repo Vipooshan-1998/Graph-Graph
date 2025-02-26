@@ -17,7 +17,7 @@ from torch_geometric.data import InMemoryDataset
 from nltk.tokenize import sent_tokenize, word_tokenize
 import spacy
 
-import logging
+# import logging
 # Configure logging
 # logging.basicConfig(level=logging.INFO)  # Set log level
 
@@ -370,9 +370,9 @@ class CrossValDataset(Dataset):
             all_data['det']).float()  # (x1, y1, x2, y2, cls, accident/no acc)bottom left and top right coordinates
 
         curr_vid_label = int(all_data['labels'][1])
-        logging.info("all_data[labels]: ", all_data['labels'])
-        logging.info('curr_vid_label: ', curr_vid_label)
-        logging.info('feature_path.split: ', feature_path.split('/'))
+        # logging.info("all_data[labels]: ", all_data['labels'])
+        # logging.info('curr_vid_label: ', curr_vid_label)
+        # logging.info('feature_path.split: ', feature_path.split('/'))
         if "neg" in feature_path.split('/')[-1]:
             curr_vid_label = 0
         else:
@@ -383,26 +383,26 @@ class CrossValDataset(Dataset):
             curr_toa = self.n_frames + 1
 
         # Reading frame (i3d) features for the frames
-        logging.info('-------------------------------------------------------------------------------')
+        # logging.info('-------------------------------------------------------------------------------')
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
-            logging.info('feature_path positive: ', feature_path.split('/'))
+            # logging.info('feature_path positive: ', feature_path.split('/'))
         else:
             img_file = os.path.join(self.img_dataset_path, "negative",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
-            logging.info('feature_path negative: ', feature_path.split('/'))
+            # logging.info('feature_path negative: ', feature_path.split('/'))
         all_img_feat = self.transform(np.load(img_file)).squeeze(0)
 
         # Reading frame stats file
         if curr_vid_label > 0:
             frame_stats_file = os.path.join(self.frame_stats_path, "positive",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
-            logging.info('feature_path positive: ', feature_path.split('/'))
+            # logging.info('feature_path positive: ', feature_path.split('/'))
         else:
             frame_stats_file = os.path.join(self.frame_stats_path, "negative",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
-            logging.info('feature_path negative: ', feature_path.split('/'))
+            # logging.info('feature_path negative: ', feature_path.split('/'))
         frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
 
         # Calculating the bbox centers
