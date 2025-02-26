@@ -125,9 +125,11 @@ class Dataset(Dataset):
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('img_file positive: ', img_file)
         else:
             img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "negative",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('img_file negative: ', img_file)
         all_img_feat = self.transform(np.load(img_file)).squeeze(0)
 
         # Reading frame stats file
