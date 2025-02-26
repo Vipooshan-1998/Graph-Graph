@@ -385,9 +385,11 @@ class CrossValDataset(Dataset):
         if curr_vid_label > 0:
             frame_stats_file = os.path.join(self.frame_stats_path, "positive",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('feature_path positive: ', feature_path.split('/'))
         else:
             frame_stats_file = os.path.join(self.frame_stats_path, "negative",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('feature_path negative: ', feature_path.split('/'))
         frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
 
         # Calculating the bbox centers
