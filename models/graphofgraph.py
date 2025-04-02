@@ -267,6 +267,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
         self.num_heads = 1
         self.input_dim = input_dim
+        self.embedding_dim = embedding_dim
 
         # process the object graph features
         self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)
@@ -279,13 +280,13 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
         
         # Improved temporal graph convolution
-        self.gc1_temporal = GATv2Conv(  # Changed from GCNConv to GATv2Conv
+        self.gc1_temporal = GATv2Conv(
             embedding_dim * 2 + embedding_dim // 2, 
             embedding_dim // 2, 
             heads=self.num_heads,
             edge_dim=1  # Using temporal_edge_w as edge features
         )
-        self.gc1_norm2 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        self.gc1_norm2 = InstanceNorm(embedding_dim // 2)  # Removed *num_heads since we're using 1 head
         
         self.pool = TopKPooling(embedding_dim, ratio=0.8)
 
@@ -295,15 +296,25 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # Added GRU for temporal sequence processing
         self.temporal_gru = nn.GRU(
             input_size=embedding_dim * 2,
-            hidden_size=embedding_dim,
+            hidden_size=embedding_dim * 2,  # Changed to match input size
             num_layers=1,
             batch_first=True
         )
 
-        self.gc2_sg = GATv2Conv(embedding_dim, embedding_dim // 2, heads=self.num_heads)
-        self.gc2_norm1 = InstanceNorm((embedding_dim // 2) * self.num_heads)
-        self.gc2_i3d = GATv2Conv(embedding_dim * 2, embedding_dim // 2, heads=self.num_heads)
-        self.gc2_norm2 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        # Fixed dimension mismatches in these layers
+        self.gc2_sg = GATv2Conv(
+            embedding_dim,  # Input from g_embed
+            embedding_dim // 2, 
+            heads=self.num_heads
+        )
+        self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
+        
+        self.gc2_i3d = GATv2Conv(
+            embedding_dim * 2,  # Input from GRU output
+            embedding_dim // 2, 
+            heads=self.num_heads
+        )
+        self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
         self.classify_fc1 = nn.Linear(embedding_dim, embedding_dim // 2)
         self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
@@ -324,7 +335,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         
         # Improved temporal processing
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))  # Using edge attributes
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
         ))
         
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
@@ -334,10 +345,10 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # Process I3D feature with temporal modeling
         img_feat = self.img_fc(img_feat)
         
-        # Added GRU processing
-        img_feat = img_feat.unsqueeze(0)  # Add sequence dimension
+        # GRU processing - reshape for temporal dimension
+        img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
         img_feat, _ = self.temporal_gru(img_feat)
-        img_feat = img_feat.squeeze(0)
+        img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)
 
         # Get frame embedding for all nodes in frame-level graph
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
