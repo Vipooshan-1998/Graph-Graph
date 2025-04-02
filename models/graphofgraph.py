@@ -262,150 +262,89 @@ from torch_geometric.nn import (
 from torch.nn import Sequential, Linear, BatchNorm1d, LeakyReLU, Dropout, GRU, MultiheadAttention
 
 class SpaceTempGoG_detr_dota(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=256, img_feat_dim=2048, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dota, self).__init__()
-        
-        # Increased dimensions and added attention mechanisms
-        self.num_heads = 4  # Increased from 1 to 4 for multi-head attention
+
+        self.num_heads = 1
         self.input_dim = input_dim
+
+        # process the object graph features
+        self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)
+        self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
+        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
+        self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
+
+        # GNN for encoding the object-level graph
+        self.gc1_spatial = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
         
-        # Enhanced object feature processing with residual connections
-        self.x_fc = nn.Sequential(
-            nn.Linear(self.input_dim, embedding_dim * 2),
-            nn.BatchNorm1d(embedding_dim * 2),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.3)
-        )
-        
-        # Improved label processing
-        self.obj_l_fc = nn.Sequential(
-            nn.Linear(300, embedding_dim),
-            nn.BatchNorm1d(embedding_dim),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.2)
-        )
-        
-        # Enhanced GNN components with edge feature processing
-        self.edge_processor = nn.Sequential(
-            nn.Linear(1, embedding_dim // 2),
-            nn.LeakyReLU(0.2)
-        )
-        
-        # Spatial-temporal graph convolution with residual connections
-        self.gc1_spatial = GATv2Conv(
-            embedding_dim * 2 + embedding_dim, 
+        # Improved temporal graph convolution
+        self.gc1_temporal = GATv2Conv(  # Changed from GCNConv to GATv2Conv
+            embedding_dim * 2 + embedding_dim // 2, 
             embedding_dim // 2, 
             heads=self.num_heads,
-            edge_dim=embedding_dim // 2
-        )
-        self.gc1_norm1 = InstanceNorm((embedding_dim // 2) * self.num_heads)
-        
-        self.gc1_temporal = GATv2Conv(
-            embedding_dim * 2 + embedding_dim, 
-            embedding_dim // 2, 
-            heads=self.num_heads,
-            edge_dim=embedding_dim // 2
+            edge_dim=1  # Using temporal_edge_w as edge features
         )
         self.gc1_norm2 = InstanceNorm((embedding_dim // 2) * self.num_heads)
         
-        # Hierarchical pooling
-        self.pool1 = TopKPooling(embedding_dim * self.num_heads, ratio=0.8)
-        self.pool2 = TopKPooling(embedding_dim * self.num_heads // 2, ratio=0.7)
+        self.pool = TopKPooling(embedding_dim, ratio=0.8)
+
+        # I3D features with temporal processing
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
         
-        # Enhanced I3D feature processing
-        self.img_fc = nn.Sequential(
-            nn.Linear(img_feat_dim, embedding_dim * 2),
-            nn.BatchNorm1d(embedding_dim * 2),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.3)
-        )
-        
-        # Multi-modal fusion with cross-attention
-        self.cross_attn = nn.MultiheadAttention(
-            embed_dim=embedding_dim,
-            num_heads=self.num_heads,
-            dropout=0.2
-        )
-        
-        # Temporal modeling with GRU
-        self.temporal_model = nn.GRU(
+        # Added GRU for temporal sequence processing
+        self.temporal_gru = nn.GRU(
             input_size=embedding_dim * 2,
             hidden_size=embedding_dim,
-            num_layers=2,
-            batch_first=True,
-            dropout=0.2
+            num_layers=1,
+            batch_first=True
         )
-        
-        # Enhanced classification head
-        self.classifier = nn.Sequential(
-            nn.Linear(embedding_dim * 2, embedding_dim),
-            nn.BatchNorm1d(embedding_dim),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.4),
-            nn.Linear(embedding_dim, embedding_dim // 2),
-            nn.BatchNorm1d(embedding_dim // 2),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.3),
-            nn.Linear(embedding_dim // 2, num_classes)
-        )
-        
-        # Additional outputs for early warning
-        self.early_warning = nn.Sequential(
-            nn.Linear(embedding_dim * 2, embedding_dim // 2),
-            nn.LeakyReLU(0.2),
-            nn.Linear(embedding_dim // 2, 1),
-            nn.Sigmoid()
-        )
-        
+
+        self.gc2_sg = GATv2Conv(embedding_dim, embedding_dim // 2, heads=self.num_heads)
+        self.gc2_norm1 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        self.gc2_i3d = GATv2Conv(embedding_dim * 2, embedding_dim // 2, heads=self.num_heads)
+        self.gc2_norm2 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+
+        self.classify_fc1 = nn.Linear(embedding_dim, embedding_dim // 2)
+        self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
+
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, edge_index, img_feat, video_adj_list, 
-                edge_embeddings, temporal_adj_list, temporal_edge_w, batch_vec):
-        # Process object features with residual connection
+    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list, temporal_edge_w, batch_vec):
+        # process object graph features
         x_feat = self.x_fc(x[:, :self.input_dim])
+        x_feat = self.relu(self.x_bn1(x_feat))
         x_label = self.obj_l_fc(x[:, self.input_dim:])
+        x_label = self.relu(self.obj_l_bn1(x_label))
         x = torch.cat((x_feat, x_label), 1)
+
+        # Get graph embedding for object-level graph
+        n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
         
-        # Process edge features
-        edge_emb = self.edge_processor(edge_embeddings[:, -1:])
-        
-        # Enhanced spatial-temporal graph processing
-        n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index, edge_attr=edge_emb)
-        ))
+        # Improved temporal processing
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_emb)
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))  # Using edge attributes
         ))
+        
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
-        
-        # Hierarchical graph pooling
-        n_embed, edge_index, _, batch_vec, _, _ = self.pool1(n_embed, edge_index, None, batch_vec)
-        n_embed, edge_index, _, batch_vec, _, _ = self.pool2(n_embed, edge_index, None, batch_vec)
-        
-        # Multi-level graph embedding
-        g_embed_max = global_max_pool(n_embed, batch_vec)
-        g_embed_mean = global_mean_pool(n_embed, batch_vec)
-        g_embed = torch.cat((g_embed_max, g_embed_mean), 1)
-        
-        # Process I3D features
+        n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
+        g_embed = global_max_pool(n_embed, batch_vec)
+
+        # Process I3D feature with temporal modeling
         img_feat = self.img_fc(img_feat)
         
-        # Temporal modeling of I3D features
-        img_feat, _ = self.temporal_model(img_feat.unsqueeze(0))
+        # Added GRU processing
+        img_feat = img_feat.unsqueeze(0)  # Add sequence dimension
+        img_feat, _ = self.temporal_gru(img_feat)
         img_feat = img_feat.squeeze(0)
-        
-        # Cross-attention between graph and visual features
-        attn_out, _ = self.cross_attn(
-            g_embed.unsqueeze(0),
-            img_feat.unsqueeze(0),
-            img_feat.unsqueeze(0)
-        )
-        fused_features = torch.cat((attn_out.squeeze(0), g_embed), 1)
-        
-        # Classification and early warning
-        logits_mc = self.classifier(fused_features)
+
+        # Get frame embedding for all nodes in frame-level graph
+        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list)))
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), 1)
+        frame_embed_sg = self.relu(self.classify_fc1(frame_embed_))
+        logits_mc = self.classify_fc2(frame_embed_sg)
         probs_mc = self.softmax(logits_mc)
-        warning_signal = self.early_warning(fused_features)
-        
-        return logits_mc, probs_mc, warning_signal
+
+        return logits_mc, probs_mc
