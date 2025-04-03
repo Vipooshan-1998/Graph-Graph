@@ -303,10 +303,10 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
 	# Added LSTM for temporal sequence processing
 	self.temporal_lstm = nn.LSTM(
-		input_size=embedding_dim * 2,
-		hidden_size=embedding_dim * 2,  # Same as input size
-		num_layers=1,
-		batch_first=True
+	      input_size=embedding_dim * 2,
+	      hidden_size=embedding_dim * 2,  # Same as input size
+	      num_layers=1,
+	      batch_first=True
 	)
 
         # Fixed dimension mismatches in these layers
