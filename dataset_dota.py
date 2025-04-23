@@ -116,7 +116,7 @@ class Dataset(Dataset):
 
         feature_path = self.feature_paths[index % (len(self))]
         video_name = feature_path.split('/')[-1][:-4]
-        print(video_name)
+        # print(video_name)
 
         # Load the data.npy (for features) and det.npy (for bounding boxes) files
         all_data = np.load(f"{feature_path}")
@@ -143,7 +143,6 @@ class Dataset(Dataset):
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
-            print('img_file positive: ', img_file)
         else:
             img_file = os.path.join(self.img_dataset_path, "negative",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
