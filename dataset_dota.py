@@ -81,7 +81,7 @@ class Dataset(Dataset):
                 feature_paths += [os.path.join(dataset_path, line)]
             else:
                 feature_paths += [os.path.join(dataset_path, line)]
-        print(feature_paths)
+        # print(feature_paths)
         return feature_paths
 
     def _frame_number(self, feat_path):
@@ -116,6 +116,7 @@ class Dataset(Dataset):
 
         feature_path = self.feature_paths[index % (len(self))]
         video_name = feature_path.split('/')[-1][:-4]
+        print(video_name)
 
         # Load the data.npy (for features) and det.npy (for bounding boxes) files
         all_data = np.load(f"{feature_path}")
