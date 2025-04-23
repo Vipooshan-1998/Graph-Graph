@@ -72,10 +72,14 @@ class Dataset(Dataset):
         feature_paths = []
 
         for line in lines:
+            # if training:
+            #     feature_paths += [os.path.join(dataset_path, "training", line)]
+            # else:
+            #     feature_paths += [os.path.join(dataset_path, "testing", line)]
             if training:
-                feature_paths += [os.path.join(dataset_path, "training", line)]
+                feature_paths += [os.path.join(dataset_path, line)]
             else:
-                feature_paths += [os.path.join(dataset_path, "testing", line)]
+                feature_paths += [os.path.join(dataset_path, line)]
 
         return feature_paths
 
