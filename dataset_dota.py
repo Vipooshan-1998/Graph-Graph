@@ -150,11 +150,17 @@ class Dataset(Dataset):
         all_img_feat = self.transform(np.load(img_file)).squeeze(0)
 
         # Reading frame stats file
+        # if curr_vid_label > 0:
+        #     frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "positive",
+        #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+        # else:
+        #     frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "negative",
+        #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
         if curr_vid_label > 0:
-            frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "positive",
+            frame_stats_file = os.path.join(self.frame_stats_path, "positive",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
         else:
-            frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "negative",
+            frame_stats_file = os.path.join(self.frame_stats_path, "negative",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
         frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
 
