@@ -65,7 +65,8 @@ class Dataset(Dataset):
         feature_paths: List of all the video paths in a split
 
         """
-        fn = "train_split.txt" if training else "test_split.txt"
+        # fn = "train_split.txt" if training else "test_split.txt"
+        fn = "split.txt" if training else "split.txt"
         split_path = os.path.join(split_path, fn)
         with open(split_path) as file:
             lines = file.read().splitlines()
