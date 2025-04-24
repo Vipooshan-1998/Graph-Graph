@@ -287,7 +287,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         #     heads=self.num_heads,
         #     edge_dim=1  # Using temporal_edge_w as edge features
         # )
-	self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)  # Removed *num_heads since we're using 1 head
         
         # self.pool = TopKPooling(embedding_dim, ratio=0.8)
