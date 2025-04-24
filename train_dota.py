@@ -151,13 +151,22 @@ def test_model(epoch, model, test_dataloader):
     if bool(opt.test_only):
         exit(0)
 
+    # # Saving checkpoint
+    # if avg_prec > best_ap:
+    #     best_ap = avg_prec
+    #     os.makedirs("model_checkpoints/dota", exist_ok=True)
+    #     torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
+    #     print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
+    # print("Best Frame avg precision: %.2f%%" % (best_ap))
+  
     # Saving checkpoint
     if avg_prec > best_ap:
         best_ap = avg_prec
-        os.makedirs("model_checkpoints/dota", exist_ok=True)
-        torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
-        print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
     print("Best Frame avg precision: %.2f%%" % (best_ap))
+  
+    os.makedirs("model_checkpoints/dota", exist_ok=True)
+    torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
+    print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
 
     model.train()
     print("")
