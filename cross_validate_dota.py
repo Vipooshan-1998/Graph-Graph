@@ -69,6 +69,7 @@ parser.add_argument("--img_feat_dim", type=int, default=4096, help="input i3d fe
 parser.add_argument("--embedding_dim", type=int, default=256, help="embedding size of the difference")
 parser.add_argument("--num_classes", type=int, default=2, help="number of classes")
 parser.add_argument("--ref_interval", type=int, default=20, help="Interval size for reference frames")
+parser.add_argument("--fps", type=int, default=10, help="Video fps")
 
 opt = parser.parse_args()
 print(opt)
@@ -144,7 +145,7 @@ def test_model(epoch, model, test_dataloader, fold):
             torch.cuda.empty_cache()
 
     # Print the avergae precision
-    avg_prec, curr_ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa)
+    avg_prec, curr_ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa, opt.fps)
     avg_prec = 100 * avg_prec
 
     # Print the confusion matrix
@@ -268,7 +269,7 @@ def train(train_dataloader, test_dataloader, fold):
         print(f"Time: {end - start}")
 
         # Print the avergae precision
-        _, ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa)
+        _, ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa, opt.fps)
 
         # Testing the model
         test_model(epoch, model, test_dataloader, fold)
