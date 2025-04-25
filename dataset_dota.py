@@ -392,10 +392,10 @@ class CrossValDataset(Dataset):
         # logging.info("all_data[labels]: ", all_data['labels'])
         # logging.info('curr_vid_label: ', curr_vid_label)
         # logging.info('feature_path.split: ', feature_path.split('/'))
-        if "neg" in feature_path.split('/')[-1]:
-            curr_vid_label = 0
-        else:
-            curr_vid_label = 1
+        # if "neg" in feature_path.split('/')[-1]:
+        #     curr_vid_label = 0
+        # else:
+        #     curr_vid_label = 1
         if curr_vid_label > 0:
             curr_toa = self.get_toa_all(video_name)
         else:
