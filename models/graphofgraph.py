@@ -281,17 +281,17 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
         
         # Improved temporal graph convolution
-        # self.gc1_temporal = GATv2Conv(
-        #     embedding_dim * 2 + embedding_dim // 2, 
-        #     embedding_dim // 2, 
-        #     heads=self.num_heads,
-        #     edge_dim=1  # Using temporal_edge_w as edge features
-        # )
-        self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        self.gc1_temporal = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2, 
+            embedding_dim // 2, 
+            heads=self.num_heads,
+            edge_dim=1  # Using temporal_edge_w as edge features
+        )
+        # self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)  # Removed *num_heads since we're using 1 head
         
-        self.pool = TopKPooling(embedding_dim, ratio=0.8)
-        # self.pool = SAGPooling(embedding_dim, ratio=0.8)
+        # self.pool = TopKPooling(embedding_dim, ratio=0.8)
+        self.pool = SAGPooling(embedding_dim, ratio=0.8)
 
         # I3D features with temporal processing
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
@@ -305,12 +305,12 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # )
 
         # Added LSTM for temporal sequence processing
-        self.temporal_lstm = nn.LSTM(
-            input_size=embedding_dim * 2,
-            hidden_size=embedding_dim * 2,  # Changed to match input size
-            num_layers=1,
-            batch_first=True
-        )
+        # self.temporal_lstm = nn.LSTM(
+        #     input_size=embedding_dim * 2,
+        #     hidden_size=embedding_dim * 2,  # Changed to match input size
+        #     num_layers=1,
+        #     batch_first=True
+        # )
 
         # Fixed dimension mismatches in these layers
         self.gc2_sg = GATv2Conv(
@@ -345,12 +345,12 @@ class SpaceTempGoG_detr_dota(nn.Module):
         n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
         
         # Old temporal processing
-        n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
+        # n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
         
         # Improved temporal processing
-        # n_embed_temporal = self.relu(self.gc1_norm2(
-        #     self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
-        # ))
+        n_embed_temporal = self.relu(self.gc1_norm2(
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+        ))
         
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
@@ -365,9 +365,9 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)
 
 	# LSTM processing - reshape for temporal dimension
-        img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
-        img_feat, (_, _) = self.temporal_lstm(img_feat)  # Extract only output, discard hidden and cell state
-        img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)
+        # img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
+        # img_feat, (_, _) = self.temporal_lstm(img_feat)  # Extract only output, discard hidden and cell state
+        # img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)
 
         # Get frame embedding for all nodes in frame-level graph
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
