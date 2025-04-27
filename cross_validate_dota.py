@@ -86,20 +86,6 @@ n_frames = 50
 acc_best_ttc = 0
 best_ttc = 0
 
-def set_seed(seed=42):
-    random.seed(seed)              # Python random module
-    np.random.seed(seed)            # Numpy random
-    torch.manual_seed(seed)         # Torch CPU
-    torch.cuda.manual_seed(seed)    # Torch GPU
-    torch.cuda.manual_seed_all(seed)  # All GPUs if you use multi-GPU
-
-    # Make deterministic
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-# Call this once at the top of your script
-set_seed(42)
-
 def test_model(epoch, model, test_dataloader, fold):
     """ Function to evaluate the model on the test data
     Inputs:
