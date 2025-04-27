@@ -291,6 +291,7 @@ if __name__ == "__main__":
         ref_interval=opt.ref_interval,
         objmap_file=opt.obj_mapping_file,
         training=True,
+        ego_dist=opt.ego_dist,
     )
 
     folds = opt.n_folds
