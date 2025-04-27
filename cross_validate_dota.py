@@ -325,6 +325,6 @@ if __name__ == "__main__":
         acc_best_ttc += best_ttc
         best_ap = -1
 
-    print('average of all best average precision: ', acc_best_avg_precision/5)
-    print('average of all best AP's time to collisioin (TTA): ', acc_best_ttc/5)
+    print("average of all best average precision: ", acc_best_avg_precision/5)
+    print("average of all best AP's time to collisioin (TTA): ", acc_best_ttc/5)
 
