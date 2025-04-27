@@ -281,17 +281,17 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
         
         # Improved temporal graph convolution
-        # self.gc1_temporal = GATv2Conv(
-        #     embedding_dim * 2 + embedding_dim // 2, 
-        #     embedding_dim // 2, 
-        #     heads=self.num_heads,
-        #     edge_dim=1  # Using temporal_edge_w as edge features
-        # )
-        self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        self.gc1_temporal = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2, 
+            embedding_dim // 2, 
+            heads=self.num_heads,
+            edge_dim=1  # Using temporal_edge_w as edge features
+        )
+        # self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)  # Removed *num_heads since we're using 1 head
         
-        # self.pool = TopKPooling(embedding_dim, ratio=0.8)
-        self.pool = SAGPooling(embedding_dim, ratio=0.8)
+        self.pool = TopKPooling(embedding_dim, ratio=0.8)
+        # self.pool = SAGPooling(embedding_dim, ratio=0.8)
 
         # I3D features with temporal processing
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
