@@ -86,6 +86,20 @@ n_frames = 50
 acc_best_ttc = 0
 best_ttc = 0
 
+def set_seed(seed=42):
+    random.seed(seed)              # Python random module
+    np.random.seed(seed)            # Numpy random
+    torch.manual_seed(seed)         # Torch CPU
+    torch.cuda.manual_seed(seed)    # Torch GPU
+    torch.cuda.manual_seed_all(seed)  # All GPUs if you use multi-GPU
+
+    # Make deterministic
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+# Call this once at the top of your script
+set_seed(42)
+
 def test_model(epoch, model, test_dataloader, fold):
     """ Function to evaluate the model on the test data
     Inputs:
@@ -166,7 +180,7 @@ def test_model(epoch, model, test_dataloader, fold):
         torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{fold+1}_{epoch+1}.pth")
         print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{fold+1}_{epoch+1}.pth")
     print("Best Frame avg precision: %.2f%%" % (best_ap))
-    print("Best Frame avg precision's TTA: %.2f%" % (best_ttc))
+    print("Best Frame avg precision's TTA: %.2f" % (best_ttc))
 
     model.train()
     print("")
