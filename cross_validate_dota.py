@@ -166,7 +166,7 @@ def test_model(epoch, model, test_dataloader, fold):
         torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{fold+1}_{epoch+1}.pth")
         print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{fold+1}_{epoch+1}.pth")
     print("Best Frame avg precision: %.2f%%" % (best_ap))
-    print("Best Frame avg precision's TTA: %.2f%%" % (best_ttc))
+    print("Best Frame avg precision's TTA: %.2f%" % (best_ttc))
 
     model.train()
     print("")
