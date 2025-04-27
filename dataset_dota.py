@@ -294,7 +294,7 @@ class Dataset(Dataset):
         return len(self.feature_paths)
     
 class CrossValDataset(Dataset):
-    def __init__(self, dataset_path, img_dataset_path, toas_files_path, split_path, ref_interval, objmap_file, training):
+    def __init__(self, dataset_path, img_dataset_path, toas_files_path, split_path, ref_interval, objmap_file, training, ego_dist):
 
         """
         Input:
@@ -320,6 +320,7 @@ class CrossValDataset(Dataset):
         self.topk = 10
         self.frame_stats_path = dataset_path[:-8] + 'frames_stats'  # (height, width)
         self.n_frames = 50
+        self.ego_dist = ego_dist
 
         # Obj label to word embeddings
         self.idx_to_classes_obj = json.load(open(objmap_file))
@@ -478,16 +479,17 @@ class CrossValDataset(Dataset):
             # dist_mat = self.get_distance(source_centers, target_centers).float()
             dist_mat = torch.cdist(source_centers, target_centers).float()
 
-            # n = bbox.shape[0]-1
-
-            # dist = self._get_distances((bbox[0, 0].unsqueeze(0).repeat(n, 1), bbox[0, 1].unsqueeze(0).repeat(n, 1)), (bbox[0, 2].unsqueeze(0).repeat(n, 1), bbox[0, 3].unsqueeze(0).repeat(n, 1)), ((bbox[1:, 0]+bbox[1:, 2])/2, bbox[1:, 3]))
-            # dist = torch.nan_to_num(dist, nan=0.0)
             
             # print("dist_mat ", dist_mat1.shape, dist_mat2.shape)
             dist_mat = F.softmax(-dist_mat, dim=-1)
             dist_rel = dist_mat[adj_list[0, :], adj_list[1, :]].unsqueeze(1)
 
-            # dist_rel[0:n, :] = dist[0].unsqueeze(1)
+            if self.ego_dist == True:
+                print('ego vehicle distance calculation enabled.')
+                n = bbox.shape[0]-1
+                dist = self._get_distances((bbox[0, 0].unsqueeze(0).repeat(n, 1), bbox[0, 1].unsqueeze(0).repeat(n, 1)), (bbox[0, 2].unsqueeze(0).repeat(n, 1), bbox[0, 3].unsqueeze(0).repeat(n, 1)), ((bbox[1:, 0]+bbox[1:, 2])/2, bbox[1:, 3]))
+                dist = torch.nan_to_num(dist, nan=0.0)
+                dist_rel[0:n, :] = dist[0].unsqueeze(1)
 
             edge_embed = torch.cat((source_centers, target_centers, dist_rel), 1)
 
