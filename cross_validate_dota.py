@@ -83,7 +83,8 @@ cls_criterion = nn.CrossEntropyLoss().to(device)
 acc_best_avg_precision = 0
 best_ap = -1
 n_frames = 50
-
+acc_best_ttc = 0
+best_ttc = 0
 
 def test_model(epoch, model, test_dataloader, fold):
     """ Function to evaluate the model on the test data
@@ -160,6 +161,7 @@ def test_model(epoch, model, test_dataloader, fold):
     # Saving checkpoint
     if avg_prec > best_ap:
         best_ap = avg_prec
+        best_ttc = curr_ttc
         os.makedirs("model_checkpoints/dota", exist_ok=True)
         torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{fold+1}_{epoch+1}.pth")
         print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{fold+1}_{epoch+1}.pth")
@@ -319,7 +321,9 @@ if __name__ == "__main__":
         train(train_dataloader, test_dataloader, fold)
 
         acc_best_avg_precision += best_ap
+        acc_best_ttc += best_ttc
         best_ap = -1
 
     print('average of all best average precision: ', acc_best_avg_precision/5)
+    print('average of all best AP's time to collisioin (TTA): ', acc_best_ttc/5)
 
