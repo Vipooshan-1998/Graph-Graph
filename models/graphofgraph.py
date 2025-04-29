@@ -113,7 +113,15 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		self.pool = TopKPooling(embedding_dim, ratio=0.8)
 
 		#I3D features
-		self.img_fc = nn.Linear(img_feat_dim, embedding_dim*2)         
+		self.img_fc = nn.Linear(img_feat_dim, embedding_dim*2)
+
+		# Added LSTM for temporal sequence processing
+		self.temporal_lstm = nn.LSTM(
+		input_size=embedding_dim * 2,
+		hidden_size=embedding_dim * 2,  # Changed to match input size
+		num_layers=1,
+		batch_first=True
+		)
 
 		self.gc2_sg = GATv2Conv(embedding_dim, embedding_dim//2, heads=self.num_heads)  #+
 		self.gc2_norm1 = InstanceNorm((embedding_dim//2)*self.num_heads)
@@ -160,6 +168,11 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
 		#Process I3D feature
 		img_feat = self.img_fc(img_feat)
+
+		# change - LSTM processing - reshape for temporal dimension
+		img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
+		img_feat, (_, _) = self.temporal_lstm(img_feat)  # Extract only output, discard hidden and cell state
+		img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)	
 
 		#Get frame embedding for all nodes in frame-level graph
 		frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
