@@ -205,11 +205,11 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		# self.gc1_temporal = GCNConv(embedding_dim*2+embedding_dim//2, embedding_dim//2)   
         	# Improved temporal graph convolution
 		self.gc1_temporal = GATv2Conv(
-            		embedding_dim * 2 + embedding_dim // 2, 
-            		embedding_dim // 2, 
-            		heads=self.num_heads,
-            		edge_dim=1  # Using temporal_edge_w as edge features
-        	)
+		embedding_dim * 2 + embedding_dim // 2, 
+		embedding_dim // 2, 
+		heads=self.num_heads,
+		edge_dim=1  # Using temporal_edge_w as edge features
+		)
 
 		self.gc1_norm2 = InstanceNorm(embedding_dim//2)
 		# self.pool = TopKPooling(embedding_dim, ratio=0.8)
@@ -268,23 +268,23 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		#old
 		# n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
 		
-        	# Improved temporal processing
-        	n_embed_temporal = self.relu(self.gc1_norm2(
-            		self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
-        	))
+		# Improved temporal processing
+		n_embed_temporal = self.relu(self.gc1_norm2(
+		self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+		))
 		
 		n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
 		n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
 		g_embed = global_max_pool(n_embed, batch_vec)
-
+		
 		#Process I3D feature
 		img_feat = self.img_fc(img_feat)
-
+		
 		# change - LSTM processing - reshape for temporal dimension
 		img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
 		img_feat, (_, _) = self.temporal_lstm(img_feat)  # Extract only output, discard hidden and cell state
 		img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)	
-
+		
 		#Get frame embedding for all nodes in frame-level graph
 		frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
 		frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list)))
@@ -294,7 +294,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		probs_mc = self.softmax(logits_mc)
 		
 		return logits_mc, probs_mc
-
+		
 
 # class SpaceTempGoG_detr_dota(nn.Module):
 
