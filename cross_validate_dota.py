@@ -70,6 +70,7 @@ parser.add_argument("--embedding_dim", type=int, default=256, help="embedding si
 parser.add_argument("--num_classes", type=int, default=2, help="number of classes")
 parser.add_argument("--ref_interval", type=int, default=20, help="Interval size for reference frames")
 parser.add_argument("--fps", type=int, default=10, help="Video fps")
+parser.add_argument("--n_frames", type=int, default=50, help="number of frames in a video")
 parser.add_argument("--ego_dist", type=int, default=1, help="Ego and other vehicles distance")
 
 opt = parser.parse_args()
@@ -82,7 +83,6 @@ cls_criterion = nn.CrossEntropyLoss().to(device)
 
 acc_best_avg_precision = 0
 best_ap = -1
-n_frames = 50
 acc_best_ttc = 0
 best_ttc = 0
 
@@ -295,6 +295,7 @@ if __name__ == "__main__":
         objmap_file=opt.obj_mapping_file,
         training=True,
         ego_dist=opt.ego_dist,
+        n_frames=opt.n_frames,
     )
 
     folds = opt.n_folds
