@@ -294,7 +294,7 @@ class Dataset(Dataset):
         return len(self.feature_paths)
     
 class CrossValDataset(Dataset):
-    def __init__(self, dataset_path, img_dataset_path, toas_files_path, split_path, ref_interval, objmap_file, training, ego_dist):
+    def __init__(self, dataset_path, img_dataset_path, toas_files_path, split_path, ref_interval, objmap_file, training, ego_dist, n_frames):
 
         """
         Input:
@@ -319,7 +319,7 @@ class CrossValDataset(Dataset):
         self.toas_files_path = toas_files_path
         self.topk = 10
         self.frame_stats_path = dataset_path[:-8] + 'frames_stats'  # (height, width)
-        self.n_frames = 50
+        self.n_frames = n_frames
         self.ego_dist = ego_dist
 
         # Obj label to word embeddings
