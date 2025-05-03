@@ -172,7 +172,7 @@ class Dataset(Dataset):
 
         for i in range(all_feat.shape[0]):
 
-            obj_label_idxs, obj_feat, obj_centers = all_obj_label_idxs[i], all_feat[i], all_obj_centers[i]
+            obj_label_idxs, obj_feat, obj_centers, bbox = all_obj_label_idxs[i], all_feat[i], all_obj_centers[i], all_bbox[i]
             num_objs = len(obj_label_idxs)
 
             # Create the adj list (making big disconnected graph for one video)
