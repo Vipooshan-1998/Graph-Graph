@@ -107,6 +107,9 @@ class Dataset(Dataset):
             toa = min(max(1, toa), self.n_frames - 1)
             toa_dict[anno['vid']] = toa
         return toa_dict
+    
+    def _get_distances(self, a, b, p):
+        return torch.abs(((b[1] - a[1])*p[0] - (b[0] - a[0])*p[1] + b[0]*a[1] - b[1]*a[0]) / torch.sqrt(torch.pow(b[1] - a[1], 2) + torch.pow(b[0] - a[0], 2)))
 
     def __getitem__(self, index):
 
