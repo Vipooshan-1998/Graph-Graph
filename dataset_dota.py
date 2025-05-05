@@ -426,11 +426,7 @@ class CrossValDataset(Dataset):
         frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
 
         # Calculating the bbox centers
-        # cx, cy = (all_bbox[:, :, 0] + all_bbox[:, :, 2]) / 2, (all_bbox[:, :, 1] + all_bbox[:, :, 3]) / 2
-
-        # Edit - Yolo Format
-        cx, cy = all_bbox[:, :, 0], all_bbox[:, :, 1]
-
+        cx, cy = (all_bbox[:, :, 0] + all_bbox[:, :, 2]) / 2, (all_bbox[:, :, 1] + all_bbox[:, :, 3]) / 2
         all_obj_centers = torch.cat((cx.unsqueeze(2), cy.unsqueeze(2)), 2).float()
 
         # Obj label indexes
