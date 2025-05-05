@@ -161,7 +161,8 @@ class Dataset(Dataset):
         # else:
         #     frame_stats_file = os.path.join(self.frame_stats_path, "negative",
         #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
-        # frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
+        
+        frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
 
         # Calculating the bbox centers
         cx, cy = (all_bbox[:, :, 0] + all_bbox[:, :, 2]) / 2, (all_bbox[:, :, 1] + all_bbox[:, :, 3]) / 2
