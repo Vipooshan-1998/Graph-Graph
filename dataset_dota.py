@@ -65,22 +65,22 @@ class Dataset(Dataset):
         feature_paths: List of all the video paths in a split
 
         """
-        # fn = "train_split.txt" if training else "test_split.txt"
-        fn = "split.txt" if training else "split.txt"
+        fn = "train_split.txt" if training else "test_split.txt"
+        # fn = "split.txt" if training else "split.txt"
         split_path = os.path.join(split_path, fn)
         with open(split_path) as file:
             lines = file.read().splitlines()
         feature_paths = []
 
         for line in lines:
-            # if training:
-            #     feature_paths += [os.path.join(dataset_path, "training", line)]
-            # else:
-            #     feature_paths += [os.path.join(dataset_path, "testing", line)]
             if training:
-                feature_paths += [os.path.join(dataset_path, line)]
+                feature_paths += [os.path.join(dataset_path, "training", line)]
             else:
-                feature_paths += [os.path.join(dataset_path, line)]
+                feature_paths += [os.path.join(dataset_path, "testing", line)]
+            # if training:
+            #     feature_paths += [os.path.join(dataset_path, line)]
+            # else:
+            #     feature_paths += [os.path.join(dataset_path, line)]
         # print(feature_paths)
         return feature_paths
 
@@ -131,37 +131,37 @@ class Dataset(Dataset):
             curr_toa = self.n_frames + 1
 
         # Reading frame (i3d) features for the frames
-        # if curr_vid_label > 0:
-        #     img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "positive",
-        #                             feature_path.split('/')[-1].split(".")[0] + '.npy')
-        #     print('img_file positive: ', img_file)
-        # else:
-        #     img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "negative",
-        #                             feature_path.split('/')[-1].split(".")[0] + '.npy')
-        #     print('img_file negative: ', img_file)
-
         if curr_vid_label > 0:
-            img_file = os.path.join(self.img_dataset_path, "positive",
+            img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('img_file positive: ', img_file)
         else:
-            img_file = os.path.join(self.img_dataset_path, "negative",
+            img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "negative",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+            print('img_file negative: ', img_file)
+
+        # if curr_vid_label > 0:
+        #     img_file = os.path.join(self.img_dataset_path, "positive",
+        #                             feature_path.split('/')[-1].split(".")[0] + '.npy')
+        # else:
+        #     img_file = os.path.join(self.img_dataset_path, "negative",
+        #                             feature_path.split('/')[-1].split(".")[0] + '.npy')
         all_img_feat = self.transform(np.load(img_file)).squeeze(0)
 
         # Reading frame stats file
-        # if curr_vid_label > 0:
-        #     frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "positive",
-        #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
-        # else:
-        #     frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "negative",
-        #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
         if curr_vid_label > 0:
-            frame_stats_file = os.path.join(self.frame_stats_path, "positive",
+            frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "positive",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
         else:
-            frame_stats_file = os.path.join(self.frame_stats_path, "negative",
+            frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "negative",
                                             feature_path.split('/')[-1].split(".")[0] + '.npy')
-        frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
+        # if curr_vid_label > 0:
+        #     frame_stats_file = os.path.join(self.frame_stats_path, "positive",
+        #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+        # else:
+        #     frame_stats_file = os.path.join(self.frame_stats_path, "negative",
+        #                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
+        # frame_stats = torch.from_numpy(np.load(frame_stats_file)).float()
 
         # Calculating the bbox centers
         cx, cy = (all_bbox[:, :, 0] + all_bbox[:, :, 2]) / 2, (all_bbox[:, :, 1] + all_bbox[:, :, 3]) / 2
