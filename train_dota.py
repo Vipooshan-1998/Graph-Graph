@@ -63,6 +63,7 @@ parser.add_argument("--num_classes", type=int, default=2, help="number of classe
 parser.add_argument("--test_only", type=int, default=0, help="Test the loaded model only the video 0(False)/1(True)")
 parser.add_argument("--ref_interval", type=int, default=20, help="Interval size for reference frames")
 parser.add_argument("--checkpoint_model", type=str, default="", help="Optional path to checkpoint model")
+parser.add_argument("--fps", type=int, default=10, help="Video fps")
 
 opt = parser.parse_args()
 print(opt)
@@ -137,7 +138,7 @@ def test_model(epoch, model, test_dataloader):
             torch.cuda.empty_cache()
 
     # Print the avergae precision
-    avg_prec, curr_ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa)
+    avg_prec, curr_ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa, opt.fps)
     avg_prec = 100 * avg_prec
 
     # Print the confusion matrix
@@ -302,7 +303,7 @@ def main():
         print(f"Time: {end - start}")
 
         # Print the avergae precision
-        _, ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa)
+        _, ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa, opt.fps)
 
         # Testing the model
         test_model(epoch, model, test_dataloader)
