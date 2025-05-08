@@ -140,7 +140,7 @@ class Dataset(Dataset):
         #                             feature_path.split('/')[-1].split(".")[0][:] + '.npy')
         # else:
         #     img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "negative",
-        #                             feature_path.split('/')[-1].split(".")[0][:] + '-neg.npy')
+        #                             feature_path.split('/')[-1].split(".")[0][:] + '.npy')
         all_img_feat = self.transform(np.load(img_file)).squeeze(0)
 
         # # Reading frame stats file
@@ -149,7 +149,7 @@ class Dataset(Dataset):
                                             feature_path.split('/')[-1].split(".")[0][5:] + '.npy')
         else:
             frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "negative",
-                                            feature_path.split('/')[-1].split(".")[0][5:11] + '.npy')
+                                            feature_path.split('/')[-1].split(".")[0][5:11] + '-neg.npy')
         # Edit
         # if curr_vid_label > 0:
         #     frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "positive",
