@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 from torch.autograd import Variable
-from torch_geometric.nn import GCNConv, global_max_pool, GATv2Conv, TopKPooling
+from torch_geometric.nn import GCNConv, global_max_pool, GATv2Conv, TopKPooling, SAGPooling
 from torch_geometric.nn.norm import InstanceNorm
 import copy
 import sys
