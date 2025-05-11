@@ -253,13 +253,13 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
 
 		#old
-		# n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
+		n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
 		
 		# Improved temporal processing
-		temporal_edge_w = temporal_edge_w.to(x.dtype)
-		n_embed_temporal = self.relu(self.gc1_norm2(
-		self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
-		))
+		# temporal_edge_w = temporal_edge_w.to(x.dtype)
+		# n_embed_temporal = self.relu(self.gc1_norm2(
+		# self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+		# ))
 		
 		n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
 		n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
