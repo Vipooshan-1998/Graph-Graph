@@ -256,7 +256,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		# n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
 		
 		# Improved temporal processing
-		print(x.dtype)
 		temporal_edge_w = temporal_edge_w.to(x.dtype)
 		n_embed_temporal = self.relu(self.gc1_norm2(
 		self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
