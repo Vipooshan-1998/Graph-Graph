@@ -109,6 +109,7 @@ def test_model(epoch, model, test_dataloader):
 			torch.cuda.empty_cache()
 
 	#Print the avergae precision 
+	np.savez('results_vid2.npz', probs=all_probs_vid2.numpy(), labels=all_y_vid.numpy(), toa=all_toa)
 	avg_prec, curr_ttc, _ = evaluation(all_probs_vid2.numpy(), all_y_vid.numpy(), all_toa)    
 	avg_prec = 100 * avg_prec
 
