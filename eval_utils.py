@@ -52,7 +52,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
             if float(len(tp[0])>0) > 0:
                 # if at least one TP, compute the relative (1 - rTTA)
                 time += tp[0][0] / float(time_of_accidents[i])
-                print('time_of_accidents: ', time_of_accidents[i])
+                # print('time_of_accidents: ', time_of_accidents[i])
                 counter = counter+1
             # all positive frames
             Tp_Fp += float(len(np.where(preds_eval[i]>=Th)[0])>0)
@@ -96,6 +96,8 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
         AP += (new_Precision[i-1]+new_Precision[i])*(new_Recall[i]-new_Recall[i-1])/2
 
     # transform the relative mTTA to seconds
+    print('------------new_Time----------------')
+    print(new_Time)
     mTTA = np.mean(new_Time) * total_seconds
     print("Average Precision= %.4f, mean Time to accident= %.4f"%(AP, mTTA))
     sort_time = new_Time[np.argsort(new_Recall)]
