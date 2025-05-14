@@ -99,6 +99,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
 
     # transform the relative mTTA to seconds
     print('------------new_Time----------------')
+    print('new_Time length: ', len(new_Time))
     print(new_Time)
     mTTA = np.mean(new_Time) * total_seconds
     print("Average Precision= %.4f, mean Time to accident= %.4f"%(AP, mTTA))
