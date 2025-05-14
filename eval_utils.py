@@ -15,6 +15,10 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     preds_eval = []
     min_pred = np.inf
     n_frames = 0
+    print("--------------------Evaluation----------------")
+    print(all_pred.shape)
+    print(all_labels.shape)
+    print(time_of_accidents.shape)
     for idx, toa in enumerate(time_of_accidents):
         if all_labels[idx] > 0:
             pred = all_pred[idx, :int(toa)]  # positive video
