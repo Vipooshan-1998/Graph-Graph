@@ -75,6 +75,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     Recall = Recall[new_index]
     Time = Time[new_index]
     print('------------Time----------------')
+    print('Time length: ', len(Time))
     print(Time)
     
     # unique the recall, and fetch corresponding precisions and TTAs
