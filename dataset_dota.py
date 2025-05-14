@@ -399,9 +399,9 @@ class CrossValDataset(Dataset):
             curr_vid_label = 1
         if curr_vid_label > 0:
             curr_toa = self.get_toa_all(video_name)
-            print('---------------TOA------------')
-            print(video_name)
-            print(curr_toa)
+            # print('---------------TOA------------')
+            # print(video_name)
+            # print(curr_toa)
         else:
             curr_toa = self.n_frames + 1
 
