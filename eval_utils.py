@@ -15,12 +15,12 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     preds_eval = []
     min_pred = np.inf
     n_frames = 0
-    print("--------------------Evaluation----------------")
-    print(all_pred.shape)
-    print(all_labels.shape)
-    print("time_of_accidents")
-    print(len(time_of_accidents))
-    print(time_of_accidents)
+    # print("--------------------Evaluation----------------")
+    # print(all_pred.shape)
+    # print(all_labels.shape)
+    # print("time_of_accidents")
+    # print(len(time_of_accidents))
+    # print(time_of_accidents)
     for idx, toa in enumerate(time_of_accidents):
         if all_labels[idx] > 0:
             pred = all_pred[idx, :int(toa)]  # positive video
@@ -74,9 +74,9 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     Precision = Precision[new_index]
     Recall = Recall[new_index]
     Time = Time[new_index]
-    print('------------Time----------------')
-    print('Time length: ', len(Time))
-    print(Time)
+    # print('------------Time----------------')
+    # print('Time length: ', len(Time))
+    # print(Time)
     
     # unique the recall, and fetch corresponding precisions and TTAs
     _,rep_index = np.unique(Recall,return_index=1)
@@ -99,9 +99,9 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
         AP += (new_Precision[i-1]+new_Precision[i])*(new_Recall[i]-new_Recall[i-1])/2
 
     # transform the relative mTTA to seconds
-    print('------------new_Time----------------')
-    print('new_Time length: ', len(new_Time))
-    print(new_Time)
+    # print('------------new_Time----------------')
+    # print('new_Time length: ', len(new_Time))
+    # print(new_Time)
     mTTA = np.mean(new_Time) * total_seconds
     print("Average Precision= %.4f, mean Time to accident= %.4f"%(AP, mTTA))
     sort_time = new_Time[np.argsort(new_Recall)]
