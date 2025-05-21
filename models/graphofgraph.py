@@ -196,7 +196,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		# embedding_dim // 2, 
 		# heads=self.num_heads,
 		# edge_dim=1  # Using temporal_edge_w as edge features
-		)
+		# )
 
 		self.gc1_norm2 = InstanceNorm(embedding_dim//2)
 		# self.pool = TopKPooling(embedding_dim, ratio=0.8)
