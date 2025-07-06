@@ -482,6 +482,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
         # Process I3D feature with temporal modeling
         img_feat = self.img_fc(img_feat)
+        print("After img_fc:", img_feat.shape)
         
         # GRU processing - reshape for temporal dimension
         # img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
@@ -490,8 +491,11 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
 	# LSTM processing - reshape for temporal dimension
         img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
+        print("After unsqueeze:", img_feat.shape)
         img_feat, (_, _) = self.temporal_lstm(img_feat)  # Extract only output, discard hidden and cell state
+        print("After temporal_lstm:", img_feat.shape)
         img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)
+        print("After squeeze:", img_feat.shape)
 
         # Get frame embedding for all nodes in frame-level graph
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
