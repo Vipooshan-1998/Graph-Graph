@@ -389,14 +389,14 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
         
         # Improved GNN for encoding the object-level graph
-        # self.gc1_spatial = GATv2Conv(
-        #     embedding_dim * 2 + embedding_dim // 2, 
-        #     embedding_dim // 2, 
-        #     heads=self.num_heads,
-        #     edge_dim=1  # Using temporal_edge_w as edge features
-        # )
+        self.gc1_spatial = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2, 
+            embedding_dim // 2, 
+            heads=self.num_heads,
+            edge_dim=1  # Using temporal_edge_w as edge features
+        )
         # GNN for encoding the object-level graph
-        self.gc1_spatial = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        # self.gc1_spatial = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
         
         # Improved temporal graph convolution
@@ -461,12 +461,12 @@ class SpaceTempGoG_detr_dota(nn.Module):
         x = torch.cat((x_feat, x_label), 1)
 
         # Old Get graph embedding for object-level graph
-        n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
+        # n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
         
         # Improved Get graph embedding for object-level graph
-        # n_embed_spatial = self.relu(self.gc1_norm1(
-        #     self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
-        # ))
+        n_embed_spatial = self.relu(self.gc1_norm1(
+            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+        ))
         
         # Old temporal processing
         # n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
@@ -482,7 +482,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
         # Process I3D feature with temporal modeling
         img_feat = self.img_fc(img_feat)
-        print("After img_fc:", img_feat.shape)
+        # print("After img_fc:", img_feat.shape)
         
         # GRU processing - reshape for temporal dimension
         # img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
@@ -491,11 +491,11 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
 	# LSTM processing - reshape for temporal dimension
         img_feat = img_feat.unsqueeze(0)  # Add sequence dimension (1, num_nodes, features)
-        print("After unsqueeze:", img_feat.shape)
+        # print("After unsqueeze:", img_feat.shape)
         img_feat, (_, _) = self.temporal_lstm(img_feat)  # Extract only output, discard hidden and cell state
-        print("After temporal_lstm:", img_feat.shape)
+        # print("After temporal_lstm:", img_feat.shape)
         img_feat = img_feat.squeeze(0)  # Back to (num_nodes, features)
-        print("After squeeze:", img_feat.shape)
+        # print("After squeeze:", img_feat.shape)
 
         # Get frame embedding for all nodes in frame-level graph
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
