@@ -124,11 +124,16 @@ class Dataset(Dataset):
         all_bbox = torch.from_numpy(
             all_data['det']).float()  # (x1, y1, x2, y2, cls, accident/no acc)bottom left and top right coordinates
 
-        curr_vid_label = int(all_data['labels'][1])
-        if curr_vid_label > 0:
-            curr_toa = self.get_toa_all(video_name)
+        # curr_vid_label = int(all_data['labels'][1])
+        # if curr_vid_label > 0:
+        #     curr_toa = self.get_toa_all(video_name)
+        # else:
+        #     curr_toa = self.n_frames + 1
+
+        if "neg" in feature_path.split('/')[-1]:
+            curr_vid_label = 0
         else:
-            curr_toa = self.n_frames + 1
+            curr_vid_label = 1
 
         # Reading frame (i3d) features for the frames
         if curr_vid_label > 0:
