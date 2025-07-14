@@ -189,12 +189,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		# self.gc1_spatial = GCNConv(embedding_dim*2+embedding_dim//2, embedding_dim//2)  
 		
 	        # Improved GNN for encoding the object-level graph
-	        self.gc1_spatial = GATv2Conv(
-	            embedding_dim * 2 + embedding_dim // 2, 
-	            embedding_dim // 2, 
-	            heads=self.num_heads,
-	            edge_dim=1  # Using temporal_edge_w as edge features
-	        ) 
+		self.gc1_spatial = GATv2Conv(
+		embedding_dim * 2 + embedding_dim // 2, 
+		embedding_dim // 2, 
+		heads=self.num_heads,
+		edge_dim=1  # Using temporal_edge_w as edge features
+		) 
 		self.gc1_norm1 = InstanceNorm(embedding_dim//2)
 
 		# self.gc1_temporal = GCNConv(embedding_dim*2+embedding_dim//2, embedding_dim//2)   
