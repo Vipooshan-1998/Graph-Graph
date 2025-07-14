@@ -262,9 +262,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		# n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
 	        
 		# Improved Get graph embedding for object-level graph
-	        n_embed_spatial = self.relu(self.gc1_norm1(
-	            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
-	        ))
+		n_embed_spatial = self.relu(self.gc1_norm1(
+		self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+		))
 		
 		#old
 		# n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
