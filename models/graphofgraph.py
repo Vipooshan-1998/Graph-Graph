@@ -403,24 +403,24 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
         
         # Improved GNN for encoding the object-level graph
-        # self.gc1_spatial = GATv2Conv(
-        #     embedding_dim * 2 + embedding_dim // 2, 
-        #     embedding_dim // 2, 
-        #     heads=self.num_heads,
-        #     edge_dim=1  # Using temporal_edge_w as edge features
-        # )
+        self.gc1_spatial = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2, 
+            embedding_dim // 2, 
+            heads=self.num_heads,
+            edge_dim=1  # Using temporal_edge_w as edge features
+        )
         # GNN for encoding the object-level graph
-        self.gc1_spatial = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        # self.gc1_spatial = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
         
         # Improved temporal graph convolution
-        # self.gc1_temporal = GATv2Conv(
-        #     embedding_dim * 2 + embedding_dim // 2, 
-        #     embedding_dim // 2, 
-        #     heads=self.num_heads,
-        #     edge_dim=1  # Using temporal_edge_w as edge features
-        # )
-        self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+        self.gc1_temporal = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2, 
+            embedding_dim // 2, 
+            heads=self.num_heads,
+            edge_dim=1  # Using temporal_edge_w as edge features
+        )
+        # self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)  # Removed *num_heads since we're using 1 head
         
         self.pool = TopKPooling(embedding_dim, ratio=0.8)
@@ -475,20 +475,20 @@ class SpaceTempGoG_detr_dota(nn.Module):
         x = torch.cat((x_feat, x_label), 1)
 
         # Old Get graph embedding for object-level graph
-        n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
+        # n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_weight=edge_embeddings[:, -1])))
         
         # Improved Get graph embedding for object-level graph
-        # n_embed_spatial = self.relu(self.gc1_norm1(
-        #     self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
-        # ))
+        n_embed_spatial = self.relu(self.gc1_norm1(
+            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+        ))
         
         # Old temporal processing
-        n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
+        # n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, temporal_edge_w)))
         
         # Improved temporal processing
-        # n_embed_temporal = self.relu(self.gc1_norm2(
-        #     self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
-        # ))
+        n_embed_temporal = self.relu(self.gc1_norm2(
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+        ))
         
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
