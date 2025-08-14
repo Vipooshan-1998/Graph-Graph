@@ -423,8 +423,8 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # self.gc1_temporal = GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)  # Removed *num_heads since we're using 1 head
         
-        self.pool = TopKPooling(embedding_dim, ratio=0.8)
-        # self.pool = SAGPooling(embedding_dim, ratio=0.8)
+        # self.pool = TopKPooling(embedding_dim, ratio=0.8)
+        self.pool = SAGPooling(embedding_dim, ratio=0.8)
 
         # I3D features with temporal processing
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
