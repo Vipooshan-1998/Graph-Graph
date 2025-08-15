@@ -133,7 +133,7 @@ class Dataset(Dataset):
                                     feature_path.split('/')[-1].split(".")[0][5:] + '.npy')
         else:
             img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "negative",
-                                    feature_path.split('/')[-1].split(".")[0][5:] + '.npy')		     # '-neg.npy'
+                                    feature_path.split('/')[-1].split(".")[0][5:] + '-neg.npy')		     # '-neg.npy'
         # Edit
         # if curr_vid_label > 0:
         #     img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "positive",
@@ -149,7 +149,7 @@ class Dataset(Dataset):
                                             feature_path.split('/')[-1].split(".")[0][5:] + '.npy')
         else:
             frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "negative",
-                                            feature_path.split('/')[-1].split(".")[0][5:11] + '.npy')    # '-neg.npy'
+                                            feature_path.split('/')[-1].split(".")[0][5:11] + '-neg.npy')    # '-neg.npy'
         # Edit
         # if curr_vid_label > 0:
         #     frame_stats_file = os.path.join(self.frame_stats_path, feature_path.split('/')[-2], "positive",
@@ -501,3 +501,4 @@ class FeaturesDataset(Dataset):
 
     def __len__(self):
         return len(self.feature_paths)
+
