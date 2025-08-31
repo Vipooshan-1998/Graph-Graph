@@ -4,6 +4,25 @@ import torch.nn.init as init
 import numpy as np
 
 
+class DepthwiseSeparableConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+        super(DepthwiseSeparableConv, self).__init__()
+        self.depthwise = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels),
+            nn.BatchNorm2d(in_channels),
+            nn.LeakyReLU(0.1, inplace=False)
+        )
+        self.pointwise = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 1),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(0.1, inplace=False)
+        )
+
+    def forward(self, x):
+        x = self.depthwise(x)
+        x = self.pointwise(x)
+        return x
+
 class Memory_Attention_Aggregation(nn.Module):
     def __init__(self, agg_dim, d_model=512, S=64):
         super(Memory_Attention_Aggregation, self).__init__()
