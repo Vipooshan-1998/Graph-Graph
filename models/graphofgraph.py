@@ -338,10 +338,13 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Ensure same dtype
         obj_feats = obj_feats.float()
         global_feats = global_feats.float()
+        
+        print(f"Input obj_feats: {obj_feats.shape}, global_feats: {global_feats.shape}")
     
         # Step 1: project
         obj_proj = self.obj_fc(obj_feats)           # [B, T_obj, embedding_dim]
         global_proj = self.global_fc(global_feats)  # [B, T_global, embedding_dim]
+        print(f"After projection obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
     
         # Step 2: align temporal dimension
         T_obj = obj_proj.size(1)
@@ -349,42 +352,42 @@ class SpaceTempGoG_detr_dad(nn.Module):
         T_max = max(T_obj, T_global)
 
         if T_obj != T_max:
-            # interpolate obj_proj to match max length
-            obj_proj = F.interpolate(
-                obj_proj.transpose(1, 2),  # [B, embedding_dim, T_obj]
-                size=T_max,
-                mode='linear',
-                align_corners=False
-            ).transpose(1, 2)  # [B, T_max, embedding_dim]
+            obj_proj = obj_proj.transpose(1, 2)  # [B, embedding_dim, T_obj]
+            obj_proj = F.interpolate(obj_proj, size=T_max, mode='linear', align_corners=False)
+            obj_proj = obj_proj.transpose(1, 2)
+            print(f"Interpolated obj_proj to: {obj_proj.shape}")
 
         if T_global != T_max:
-            # interpolate global_proj to match max length
-            global_proj = F.interpolate(
-                global_proj.transpose(1, 2),  # [B, embedding_dim, T_global]
-                size=T_max,
-                mode='linear',
-                align_corners=False
-            ).transpose(1, 2)  # [B, T_max, embedding_dim]
-
+            global_proj = global_proj.transpose(1, 2)  # [B, embedding_dim, T_global]
+            global_proj = F.interpolate(global_proj, size=T_max, mode='linear', align_corners=False)
+            global_proj = global_proj.transpose(1, 2)
+            print(f"Interpolated global_proj to: {global_proj.shape}")
+    
         # Step 3: concatenate along feature dimension
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
+        print(f"Concatenated features shape: {concat_feats.shape}")
     
         # Step 4: apply three attention modules in parallel
-        mem_out = self.memory_attention(concat_feats)   # [B, T_max, 2*embedding_dim]
-        aux_out = self.aux_attention(concat_feats)      # [B, T_max, 2*embedding_dim]
-        emsa_out = self.temporal_emsa(concat_feats)     # [B, T_max, 2*embedding_dim]
+        mem_out = self.memory_attention(concat_feats)
+        aux_out = self.aux_attention(concat_feats)
+        emsa_out = self.temporal_emsa(concat_feats)
+        print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
     
         # Step 5: concatenate outputs
-        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 6*embedding_dim]
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
+        print(f"Fused output shape: {fused.shape}")
     
         # Step 6: pool over time
-        pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
+        pooled = fused.mean(dim=1)
+        print(f"Pooled features shape: {pooled.shape}")
     
         # Step 7: classifier
-        logits_mc = self.classifier(pooled)           # [B, num_classes]
-        probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
+        logits_mc = self.classifier(pooled)
+        probs_mc = F.softmax(logits_mc, dim=-1)
+        print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
     
         return logits_mc, probs_mc
+
 
 
 
