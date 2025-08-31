@@ -305,10 +305,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation, EMSA
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation, EMSA
 
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
@@ -350,30 +346,36 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Step 2: align temporal dimension
         T_obj = obj_proj.size(1)
         T_global = global_proj.size(1)
-    
-        if T_obj != T_global:
-            if T_global == 1:
-                # Repeat single global feature to match object sequence length
-                global_proj = global_proj.repeat(1, T_obj, 1)
-            else:
-                # Interpolate global features to match object sequence length
-                global_proj = F.interpolate(
-                    global_proj.transpose(1, 2),  # [B, embedding_dim, T_global]
-                    size=T_obj,
-                    mode='linear',
-                    align_corners=False
-                ).transpose(1, 2)  # [B, T_obj, embedding_dim]
-    
+        T_max = max(T_obj, T_global)
+
+        if T_obj != T_max:
+            # interpolate obj_proj to match max length
+            obj_proj = F.interpolate(
+                obj_proj.transpose(1, 2),  # [B, embedding_dim, T_obj]
+                size=T_max,
+                mode='linear',
+                align_corners=False
+            ).transpose(1, 2)  # [B, T_max, embedding_dim]
+
+        if T_global != T_max:
+            # interpolate global_proj to match max length
+            global_proj = F.interpolate(
+                global_proj.transpose(1, 2),  # [B, embedding_dim, T_global]
+                size=T_max,
+                mode='linear',
+                align_corners=False
+            ).transpose(1, 2)  # [B, T_max, embedding_dim]
+
         # Step 3: concatenate along feature dimension
-        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_obj, 2*embedding_dim]
+        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
     
         # Step 4: apply three attention modules in parallel
-        mem_out = self.memory_attention(concat_feats)   # [B, T_obj, 2*embedding_dim]
-        aux_out = self.aux_attention(concat_feats)      # [B, T_obj, 2*embedding_dim]
-        emsa_out = self.temporal_emsa(concat_feats)     # [B, T_obj, 2*embedding_dim]
+        mem_out = self.memory_attention(concat_feats)   # [B, T_max, 2*embedding_dim]
+        aux_out = self.aux_attention(concat_feats)      # [B, T_max, 2*embedding_dim]
+        emsa_out = self.temporal_emsa(concat_feats)     # [B, T_max, 2*embedding_dim]
     
         # Step 5: concatenate outputs
-        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_obj, 6*embedding_dim]
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 6*embedding_dim]
     
         # Step 6: pool over time
         pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
@@ -383,7 +385,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
     
         return logits_mc, probs_mc
-
 
 
 
