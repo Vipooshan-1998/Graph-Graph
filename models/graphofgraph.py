@@ -308,54 +308,57 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
-
-        # projection layers
+		
+        # Linear projections for object and global features
         self.obj_fc = nn.Linear(input_dim, embedding_dim)
         self.global_fc = nn.Linear(img_feat_dim, embedding_dim)
 
-        # three parallel modules
-        self.memory_attention = Memory_Attention_Aggregation(embedding_dim)
-        self.aux_attention = AUX_Loss_Aggregation(embedding_dim)
-        self.temporal_emsa = EMSA(embedding_dim)
+        concat_dim = embedding_dim * 2  # after concatenating obj + global
 
-        # classifier
-        self.classifier = nn.Linear(embedding_dim * 3, num_classes)
+        # Three parallel modules
+        self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
+        self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
+        self.temporal_emsa = EMSA(channels=concat_dim, factor=5)
 
-    def forward(
-        self,
-        obj_feats,          # object features
-        global_feats,       # global features
-        ego_feats=None,
-        lane_feats=None,
-        speed=None,
-        accel=None,
-        time_to_collision=None,
-        mask=None,
-        other_feats=None
-    ):
-        # --- feature projection ---
-        obj_proj = self.obj_fc(obj_feats)
-        global_proj = self.global_fc(global_feats)
+        # Final classifier after concatenating outputs of all three
+        fused_dim = concat_dim * 3
+        self.classifier = nn.Sequential(
+            nn.Linear(fused_dim, fused_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(fused_dim // 2, num_classes)
+        )
 
-        # concatenate before feeding into modules
-        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)
+    def forward(self, obj_feats, global_feats):
+        """
+        obj_feats: [B, T, input_dim]
+        global_feats: [B, T, img_feat_dim]
+        """
 
-        # --- three parallel modules ---
-        mem_out = self.memory_attention(concat_feats)
-        aux_out = self.aux_attention(concat_feats)
-        emsa_out = self.temporal_emsa(concat_feats)
+        # Step 1: project
+        obj_proj = self.obj_fc(obj_feats)           # [B, T, embedding_dim]
+        global_proj = self.global_fc(global_feats)  # [B, T, embedding_dim]
 
-        # fuse outputs
-        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
+        # Step 2: concatenate
+        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T, 2*embedding_dim]
 
-        # pool for classification
-        pooled = fused.mean(dim=1)
+        # Step 3: apply three methods in parallel
+        mem_out = self.memory_attention(concat_feats)   # [B, T, 2*embedding_dim]
+        aux_out = self.aux_attention(concat_feats)      # [B, T, 2*embedding_dim]
+        emsa_out = self.temporal_emsa(concat_feats)     # [B, T, 2*embedding_dim]
 
-        # output
-        logits_mc = self.classifier(pooled)
-        probs_mc = F.softmax(logits_mc, dim=-1)
+        # Step 4: concatenate their outputs
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T, 6*embedding_dim]
+
+        # Step 5: pool over time
+        pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
+
+        # Step 6: classifier
+        logits_mc = self.classifier(pooled)           # [B, num_classes]
+        probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
 
         return logits_mc, probs_mc
+
 
 
 
