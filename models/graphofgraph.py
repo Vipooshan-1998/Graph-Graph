@@ -329,7 +329,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
             nn.Linear(fused_dim // 2, num_classes)
         )
 
-	    def forward(self, obj_feats, global_feats):
+	def forward(self, obj_feats, global_feats):
 	    """
 	    obj_feats: [B, T_obj, input_dim]
 	    global_feats: [B, T_global, img_feat_dim]
@@ -375,6 +375,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 	    probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
 	
 	    return logits_mc, probs_mc
+
 
 
 
