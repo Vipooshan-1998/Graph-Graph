@@ -308,7 +308,7 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 class SpaceTempGoG_detr_dad(nn.Module):
 	
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
-        super(SpaceTempGoG_EMSA_dad, self).__init__()
+        super(SpaceTempGoG_detr_dad, self).__init__()
 
         # Linear projections for object and global features
         self.obj_fc = nn.Linear(input_dim, embedding_dim)
