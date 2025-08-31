@@ -307,14 +307,14 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 
 class SpaceTempGoG_detr_dad(nn.Module):
 	
-    def __init__(self, obj_dim=512, global_dim=512, hidden_dim=256, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_EMSA_dad, self).__init__()
 
         # Linear projections for object and global features
-        self.obj_fc = nn.Linear(obj_dim, hidden_dim)
-        self.global_fc = nn.Linear(global_dim, hidden_dim)
+        self.obj_fc = nn.Linear(input_dim, embedding_dim)
+        self.global_fc = nn.Linear(img_feat_dim, embedding_dim)
 
-        concat_dim = hidden_dim * 2  # after concatenating obj + global
+        concat_dim = embedding_dim * 2  # after concatenating obj + global
 
         # Three parallel modules
         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
@@ -332,33 +332,34 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
     def forward(self, obj_feats, global_feats):
         """
-        obj_feats: [B, T, obj_dim]
-        global_feats: [B, T, global_dim]
+        obj_feats: [B, T, input_dim]
+        global_feats: [B, T, img_feat_dim]
         """
 
         # Step 1: project
-        obj_proj = self.obj_fc(obj_feats)          # [B, T, H]
-        global_proj = self.global_fc(global_feats) # [B, T, H]
+        obj_proj = self.obj_fc(obj_feats)           # [B, T, embedding_dim]
+        global_proj = self.global_fc(global_feats)  # [B, T, embedding_dim]
 
         # Step 2: concatenate
-        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T, 2H]
+        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T, 2*embedding_dim]
 
         # Step 3: apply three methods in parallel
-        mem_out = self.memory_attention(concat_feats)        # [B, T, 2H]
-        aux_out = self.aux_attention(concat_feats)           # [B, T, 2H]
-        emsa_out = self.temporal_emsa(concat_feats)          # [B, T, 2H]
+        mem_out = self.memory_attention(concat_feats)   # [B, T, 2*embedding_dim]
+        aux_out = self.aux_attention(concat_feats)      # [B, T, 2*embedding_dim]
+        emsa_out = self.temporal_emsa(concat_feats)     # [B, T, 2*embedding_dim]
 
         # Step 4: concatenate their outputs
-        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T, 6H]
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T, 6*embedding_dim]
 
-        # Step 5: pool over time (sequence → video-level)
-        pooled = fused.mean(dim=1)  # [B, 6H]
+        # Step 5: pool over time
+        pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
 
         # Step 6: classifier
         logits_mc = self.classifier(pooled)           # [B, num_classes]
         probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
 
         return logits_mc, probs_mc
+
 
 
 # class SpaceTempGoG_detr_dota(nn.Module):
