@@ -305,7 +305,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation, EMSA
 
-
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
@@ -376,7 +375,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Step 4: apply three attention modules in parallel
         mem_out = self.memory_attention(concat_feats)
         aux_out = self.aux_attention(concat_feats)
-        emsa_out = self.temporal_emsa(concat_feats)
+
+        # For EMSA, reshape 3D [B, T, C] -> 4D [B, C, H=1, W=T]
+        emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)  # [B, C, 1, T_max]
+        emsa_out = self.temporal_emsa(emsa_in)               # [B, C, 1, T_max]
+        emsa_out = emsa_out.squeeze(2).transpose(1, 2)      # back to [B, T_max, C]
+
         print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
     
         # Step 5: concatenate outputs
@@ -390,9 +394,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Step 7: classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
-        print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
+        # print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
     
         return logits_mc, probs_mc
+
 
 
 
