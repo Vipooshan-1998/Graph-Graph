@@ -329,52 +329,50 @@ class SpaceTempGoG_detr_dad(nn.Module):
             nn.Linear(fused_dim // 2, num_classes)
         )
 
-	def forward(self, obj_feats, global_feats):
-	    """
-	    obj_feats: [B, T_obj, input_dim]
-	    global_feats: [B, T_global, img_feat_dim]
-	    """
-	    # Ensure same dtype
-	    obj_feats = obj_feats.float()
-	    global_feats = global_feats.float()
-	
-	    # Step 1: project
-	    obj_proj = self.obj_fc(obj_feats)           # [B, T_obj, embedding_dim]
-	    global_proj = self.global_fc(global_feats)  # [B, T_global, embedding_dim]
-	
-	    # Step 2: align temporal dimension
-	    T_obj = obj_proj.size(1)
-	    T_global = global_proj.size(1)
-	
-	    if T_obj != T_global:
-	        # Option A: repeat global features to match object features
-	        if T_global == 1:
-	            # single global feature per sample
-	            global_proj = global_proj.repeat(1, T_obj, 1)
-	        else:
-	            # interpolate along temporal dimension
-	            global_proj = F.interpolate(global_proj.transpose(1, 2), size=T_obj, mode='linear', align_corners=False)
-	            global_proj = global_proj.transpose(1, 2)
-	
-	    # Step 3: concatenate along feature dimension
-	    concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_obj, 2*embedding_dim]
-	
-	    # Step 4: apply three methods in parallel
-	    mem_out = self.memory_attention(concat_feats)   # [B, T_obj, 2*embedding_dim]
-	    aux_out = self.aux_attention(concat_feats)      # [B, T_obj, 2*embedding_dim]
-	    emsa_out = self.temporal_emsa(concat_feats)     # [B, T_obj, 2*embedding_dim]
-	
-	    # Step 5: concatenate their outputs
-	    fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_obj, 6*embedding_dim]
-	
-	    # Step 6: pool over time
-	    pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
-	
-	    # Step 7: classifier
-	    logits_mc = self.classifier(pooled)           # [B, num_classes]
-	    probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
-	
-	    return logits_mc, probs_mc
+    def forward(self, obj_feats, global_feats):
+        """
+        obj_feats: [B, T_obj, input_dim]
+        global_feats: [B, T_global, img_feat_dim]
+        """
+        # Ensure same dtype
+        obj_feats = obj_feats.float()
+        global_feats = global_feats.float()
+    
+        # Step 1: project
+        obj_proj = self.obj_fc(obj_feats)           # [B, T_obj, embedding_dim]
+        global_proj = self.global_fc(global_feats)  # [B, T_global, embedding_dim]
+    
+        # Step 2: align temporal dimension
+        T_obj = obj_proj.size(1)
+        T_global = global_proj.size(1)
+    
+        if T_obj != T_global:
+            # Option A: repeat global features to match object features
+            if T_global == 1:
+                # single global feature per sample
+                global_proj = global_proj.repeat(1, T_obj, 1)
+            else:
+                # interpolate along temporal dimension
+                global_proj = F.interpolate(global_proj.transpose(1, 2), size=T_obj, mode='linear', align_corners=False)
+                global_proj = global_proj.transpose(1, 2)
+    
+        # Step 3: concatenate along feature dimension
+        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_obj, 2*embedding_dim]
+    
+        # Step 4: apply three methods in parallel
+        mem_out = self.memory_attention(concat_feats)   # [B, T_obj, 2*embedding_dim]
+        aux_out = self.aux_attention(concat_feats)      # [B, T_obj, 2*embedding_dim]
+        emsa_out = self.temporal_emsa(concat_feats)     # [B, T_obj, 2*embedding_dim]
+    
+        # Step 5: concatenate their outputs
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_obj, 6*embedding_dim]
+    
+        # Step 6: pool over time
+        pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
+    
+        # Step 7: classifier
+        logits_mc = self.classifier(pooled)_
+
 
 
 
