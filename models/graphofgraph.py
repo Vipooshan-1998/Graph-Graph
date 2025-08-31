@@ -332,9 +332,15 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
     def forward(self, obj_feats, global_feats):
         """
-        obj_feats: [B, T_obj, input_dim]
-        global_feats: [B, T_global, img_feat_dim]
+        obj_feats: [B, T_obj, input_dim] or [T_obj, input_dim]
+        global_feats: [B, T_global, img_feat_dim] or [T_global, img_feat_dim]
         """
+        # Add batch dimension if missing
+        if obj_feats.dim() == 2:
+            obj_feats = obj_feats.unsqueeze(0)  # [1, T_obj, input_dim]
+        if global_feats.dim() == 2:
+            global_feats = global_feats.unsqueeze(0)  # [1, T_global, img_feat_dim]
+
         # Ensure same dtype
         obj_feats = obj_feats.float()
         global_feats = global_feats.float()
@@ -387,7 +393,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
         print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
     
         return logits_mc, probs_mc
-
 
 
 
