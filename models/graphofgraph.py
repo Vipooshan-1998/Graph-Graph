@@ -303,7 +303,7 @@ class SpaceTempGoG_detr_ccd(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation, EMSA
+from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation, EMSA
 
 class SpaceTempGoG_detr_dad(nn.Module):
 	
