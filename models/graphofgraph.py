@@ -334,7 +334,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         obj_feats: [B, T, input_dim]
         global_feats: [B, T, img_feat_dim]
         """
-
+    	obj_feats = obj_feats.float()
+    	global_feats = global_feats.float()
+		
         # Step 1: project
         obj_proj = self.obj_fc(obj_feats)           # [B, T, embedding_dim]
         global_proj = self.global_fc(global_feats)  # [B, T, embedding_dim]
