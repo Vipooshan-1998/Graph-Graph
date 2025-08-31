@@ -371,10 +371,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         pooled = fused.mean(dim=1)  # [B, 6*embedding_dim]
     
         # Step 7: classifier
-        logits_mc = self.classifier(pooled)_
-
-
-
+        logits_mc = self.classifier(pooled)           # [B, num_classes]
+        probs_mc = F.softmax(logits_mc, dim=-1)       # [B, num_classes]
+    
+        return logits_mc, probs_mc
 
 
 
