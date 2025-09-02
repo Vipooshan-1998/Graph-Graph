@@ -526,22 +526,20 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=256, img_feat_dim=2048, num_classes=2):
         super().__init__()
         
-        # Linear projections
         self.obj_fc = nn.Linear(input_dim, embedding_dim)
         self.global_fc = nn.Linear(img_feat_dim, embedding_dim)
 
-        concat_dim = embedding_dim * 2  # must be divisible by EMSA.groups (5)
-        assert concat_dim % 5 == 0, f"concat_dim={concat_dim} must be divisible by EMSA groups=5"
+        concat_dim = embedding_dim * 2  # 512
+        groups = 8  # must divide concat_dim
+        assert concat_dim % groups == 0, f"concat_dim={concat_dim} must be divisible by groups={groups}"
 
-        # Attention modules
         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
-        self.temporal_emsa = EMSA(channels=concat_dim, factor=5)
+        self.temporal_emsa = EMSA(channels=concat_dim, factor=groups)
 
-        # Classifier
         fused_dim = concat_dim * 3
         self.classifier = nn.Sequential(
             nn.Linear(fused_dim, fused_dim // 2),
@@ -592,6 +590,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = F.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
+
 
 
 
