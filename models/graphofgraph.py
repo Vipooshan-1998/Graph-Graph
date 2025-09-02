@@ -305,6 +305,103 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation, EMSA
 
+# class SpaceTempGoG_detr_dad(nn.Module):
+#     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
+#         super(SpaceTempGoG_detr_dad, self).__init__()
+		
+#         # Linear projections for object and global features
+#         self.obj_fc = nn.Linear(input_dim, embedding_dim)
+#         self.global_fc = nn.Linear(img_feat_dim, embedding_dim)
+
+#         concat_dim = embedding_dim * 2  # after concatenating obj + global
+
+#         # Three parallel modules
+#         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
+#         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
+#         self.temporal_emsa = EMSA(channels=concat_dim, factor=5)
+
+#         # Final classifier after concatenating outputs of all three
+#         fused_dim = concat_dim * 3
+#         self.classifier = nn.Sequential(
+#             nn.Linear(fused_dim, fused_dim // 2),
+#             nn.ReLU(inplace=True),
+#             nn.Dropout(0.5),
+#             nn.Linear(fused_dim // 2, num_classes)
+#         )
+
+#     def forward(self, obj_feats, global_feats):
+#         """
+#         obj_feats: [B, T_obj, input_dim] or [T_obj, input_dim]
+#         global_feats: [B, T_global, img_feat_dim] or [T_global, img_feat_dim]
+#         """
+#         # Add batch dimension if missing
+#         if obj_feats.dim() == 2:
+#             obj_feats = obj_feats.unsqueeze(0)  # [1, T_obj, input_dim]
+#         if global_feats.dim() == 2:
+#             global_feats = global_feats.unsqueeze(0)  # [1, T_global, img_feat_dim]
+
+#         # Ensure same dtype
+#         obj_feats = obj_feats.float()
+#         global_feats = global_feats.float()
+        
+#         print(f"Input obj_feats: {obj_feats.shape}, global_feats: {global_feats.shape}")
+    
+#         # Step 1: project
+#         obj_proj = self.obj_fc(obj_feats)           # [B, T_obj, embedding_dim]
+#         global_proj = self.global_fc(global_feats)  # [B, T_global, embedding_dim]
+#         print(f"After projection obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
+    
+#         # Step 2: align temporal dimension
+#         T_obj = obj_proj.size(1)
+#         T_global = global_proj.size(1)
+#         T_max = max(T_obj, T_global)
+
+#         if T_obj != T_max:
+#             obj_proj = obj_proj.transpose(1, 2)  # [B, embedding_dim, T_obj]
+#             obj_proj = F.interpolate(obj_proj, size=T_max, mode='linear', align_corners=False)
+#             obj_proj = obj_proj.transpose(1, 2)
+#             print(f"Interpolated obj_proj to: {obj_proj.shape}")
+
+#         if T_global != T_max:
+#             global_proj = global_proj.transpose(1, 2)  # [B, embedding_dim, T_global]
+#             global_proj = F.interpolate(global_proj, size=T_max, mode='linear', align_corners=False)
+#             global_proj = global_proj.transpose(1, 2)
+#             print(f"Interpolated global_proj to: {global_proj.shape}")
+    
+#         # Step 3: concatenate along feature dimension
+#         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
+#         print(f"Concatenated features shape: {concat_feats.shape}")
+    
+#         # Step 4: apply three attention modules in parallel
+#         mem_out = self.memory_attention(concat_feats)
+#         aux_out = self.aux_attention(concat_feats)
+
+#         # For EMSA, reshape 3D [B, T, C] -> 4D [B, C, H=1, W=T]
+#         emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)  # [B, C, 1, T_max]
+#         emsa_out = self.temporal_emsa(emsa_in)               # [B, C, 1, T_max]
+#         emsa_out = emsa_out.squeeze(2).transpose(1, 2)      # back to [B, T_max, C]
+
+#         print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
+    
+#         # Step 5: concatenate outputs
+#         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
+#         print(f"Fused output shape: {fused.shape}")
+    
+#         # Step 6: pool over time
+#         pooled = fused.mean(dim=1)
+#         print(f"Pooled features shape: {pooled.shape}")
+    
+#         # Step 7: classifier
+#         logits_mc = self.classifier(pooled)
+#         probs_mc = F.softmax(logits_mc, dim=-1)
+#         # print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
+    
+#         return logits_mc, probs_mc
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
@@ -331,16 +428,28 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
     def forward(self, obj_feats, global_feats):
         """
-        obj_feats: [B, T_obj, input_dim] or [T_obj, input_dim]
-        global_feats: [B, T_global, img_feat_dim] or [T_global, img_feat_dim]
+        obj_feats: [B, T_obj, input_dim] or [B, C, H, W]
+        global_feats: [B, T_global, img_feat_dim] or [B, C, H, W]
         """
-        # Add batch dimension if missing
-        if obj_feats.dim() == 2:
-            obj_feats = obj_feats.unsqueeze(0)  # [1, T_obj, input_dim]
-        if global_feats.dim() == 2:
-            global_feats = global_feats.unsqueeze(0)  # [1, T_global, img_feat_dim]
 
-        # Ensure same dtype
+        # ---- Case 1: If input is [B, C, H, W] (images), flatten spatial dims ----
+        if obj_feats.dim() == 4:  # [B, C, H, W]
+            B, C, H, W = obj_feats.shape
+            obj_feats = obj_feats.view(B, H * W, C)  # [B, T_obj, input_dim]
+            print(f"Reshaped obj_feats from [B,C,H,W] -> {obj_feats.shape}")
+
+        if global_feats.dim() == 4:  # [B, C, H, W]
+            B, C, H, W = global_feats.shape
+            global_feats = global_feats.view(B, H * W, C)  # [B, T_global, img_feat_dim]
+            print(f"Reshaped global_feats from [B,C,H,W] -> {global_feats.shape}")
+
+        # ---- Case 2: If input is [T, D], add batch dimension ----
+        if obj_feats.dim() == 2:
+            obj_feats = obj_feats.unsqueeze(0)
+        if global_feats.dim() == 2:
+            global_feats = global_feats.unsqueeze(0)
+
+        # Ensure float dtype
         obj_feats = obj_feats.float()
         global_feats = global_feats.float()
         
@@ -394,10 +503,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Step 7: classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
-        # print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
+        print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
     
         return logits_mc, probs_mc
-
 
 
 
