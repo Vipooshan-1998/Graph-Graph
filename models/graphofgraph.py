@@ -525,6 +525,7 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 #         return logits_mc, probs_mc
 
 
+import torch.nn.functional as F
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
