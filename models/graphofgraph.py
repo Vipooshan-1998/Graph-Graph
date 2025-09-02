@@ -528,107 +528,76 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
-		
-        # Linear projections for object and global features
+        
+        self.embedding_dim = embedding_dim
+        self.factor = 5  # EMSA groups
+        # Make EMSA input channels divisible by factor
+        emsa_channels = embedding_dim * 2
+        remainder = emsa_channels % self.factor
+        if remainder != 0:
+            emsa_channels += (self.factor - remainder)
+        self.emsa_channels = emsa_channels
+
+        # Linear projections
         self.obj_fc = nn.Linear(input_dim, embedding_dim)
         self.global_fc = nn.Linear(img_feat_dim, embedding_dim)
+        
+        # Optional: adjust concatenated feature dimension to be divisible
+        self.adjust_fc = None
+        if emsa_channels != embedding_dim * 2:
+            self.adjust_fc = nn.Linear(embedding_dim * 2, emsa_channels)
 
-        concat_dim = embedding_dim * 2  # after concatenating obj + global
+        # Attention modules
+        self.memory_attention = Memory_Attention_Aggregation(agg_dim=embedding_dim * 2, d_model=embedding_dim * 2)
+        self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=embedding_dim * 2)
+        self.temporal_emsa = EMSA(channels=emsa_channels, factor=self.factor)
 
-        # Three parallel modules
-        self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
-        self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
-        self.temporal_emsa = EMSA(channels=concat_dim, factor=5)
-
-        # Final classifier after concatenating outputs of all three
-        fused_dim = concat_dim * 3
+        # Final classifier
         self.classifier = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim // 2),
+            nn.Linear(emsa_channels * 3, emsa_channels * 3 // 2),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
-            nn.Linear(fused_dim // 2, num_classes)
+            nn.Linear(emsa_channels * 3 // 2, num_classes)
         )
 
     def forward(self, obj_feats, global_feats):
-        """
-        obj_feats: [B, T_obj, input_dim] or [T_obj, input_dim]
-        global_feats: [B, T_global, img_feat_dim] or [T_global, img_feat_dim]
-        """
-        # Add batch dimension if missing
         if obj_feats.dim() == 2:
             obj_feats = obj_feats.unsqueeze(0)
         if global_feats.dim() == 2:
             global_feats = global_feats.unsqueeze(0)
 
-        # Ensure float dtype
         obj_feats = obj_feats.float()
         global_feats = global_feats.float()
-        
-        print(f"Input obj_feats: {obj_feats.shape}, global_feats: {global_feats.shape}")
-    
-        # Step 1: project
+
         obj_proj = self.obj_fc(obj_feats)
         global_proj = self.global_fc(global_feats)
-        print(f"After projection obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
-    
-        # Step 2: align temporal dimension
-        T_obj = obj_proj.size(1)
-        T_global = global_proj.size(1)
-        T_max = max(T_obj, T_global)
 
-        if T_obj != T_max:
-            obj_proj = obj_proj.transpose(1, 2)
-            obj_proj = F.interpolate(obj_proj, size=T_max, mode='linear', align_corners=False)
-            obj_proj = obj_proj.transpose(1, 2)
+        # Align temporal dimension
+        T_max = max(obj_proj.size(1), global_proj.size(1))
+        if obj_proj.size(1) != T_max:
+            obj_proj = F.interpolate(obj_proj.transpose(1, 2), size=T_max, mode='linear', align_corners=False).transpose(1, 2)
+        if global_proj.size(1) != T_max:
+            global_proj = F.interpolate(global_proj.transpose(1, 2), size=T_max, mode='linear', align_corners=False).transpose(1, 2)
 
-        if T_global != T_max:
-            global_proj = global_proj.transpose(1, 2)
-            global_proj = F.interpolate(global_proj, size=T_max, mode='linear', align_corners=False)
-            global_proj = global_proj.transpose(1, 2)
-    
-        # Step 3: concatenate along feature dimension
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)
-        print(f"Concatenated features shape: {concat_feats.shape}")
-    
-        # Step 4: apply three attention modules
+        if self.adjust_fc:
+            concat_feats = self.adjust_fc(concat_feats)  # make channels divisible by EMSA factor
+
+        # Attention modules
         mem_out = self.memory_attention(concat_feats)
         aux_out = self.aux_attention(concat_feats)
+        emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)  # [B, C, 1, T]
+        emsa_out = self.temporal_emsa(emsa_in).squeeze(2).transpose(1, 2)
 
-        # Ensure batch dimension and temporal alignment for concatenation
-        def align_tensor(x, T_max):
-            if x.dim() == 2:
-                x = x.unsqueeze(0)
-            if x.size(1) != T_max:
-                x = x.transpose(1, 2)
-                x = F.interpolate(x, size=T_max, mode='linear', align_corners=False)
-                x = x.transpose(1, 2)
-            return x
-
-        mem_out = align_tensor(mem_out, T_max)
-        aux_out = align_tensor(aux_out, T_max)
-
-        # EMSA expects 4D input [B, C, H, W]
-        emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)
-        emsa_out = self.temporal_emsa(emsa_in)
-        emsa_out = emsa_out.squeeze(2).transpose(1, 2)
-        emsa_out = align_tensor(emsa_out, T_max)
-
-        print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
-
-        # Step 5: concatenate outputs
+        # Concatenate all outputs
         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
-        print(f"Fused output shape: {fused.shape}")
-    
-        # Step 6: pool over time
+
         pooled = fused.mean(dim=1)
-        print(f"Pooled features shape: {pooled.shape}")
-    
-        # Step 7: classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
-        print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
-    
+
         return logits_mc, probs_mc
+
 
 
 # class SpaceTempGoG_detr_dota(nn.Module):
