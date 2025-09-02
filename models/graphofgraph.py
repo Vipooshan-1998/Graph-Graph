@@ -528,17 +528,20 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=256, img_feat_dim=2048, num_classes=2):
         super().__init__()
-        
+
         self.obj_fc = nn.Linear(input_dim, embedding_dim)
         self.global_fc = nn.Linear(img_feat_dim, embedding_dim)
 
-        concat_dim = embedding_dim * 2  # 512
-        groups = 8  # must divide concat_dim
-        assert concat_dim % groups == 0, f"concat_dim={concat_dim} must be divisible by groups={groups}"
+        concat_dim = embedding_dim * 2
+        groups = 8
+        assert concat_dim % groups == 0
 
         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
         self.temporal_emsa = EMSA(channels=concat_dim, factor=groups)
+
+        self.mem_proj = nn.Linear(concat_dim, concat_dim)
+        self.aux_proj = nn.Linear(concat_dim, concat_dim)
 
         fused_dim = concat_dim * 3
         self.classifier = nn.Sequential(
@@ -568,13 +571,17 @@ class SpaceTempGoG_detr_dad(nn.Module):
         global_proj = self.global_fc(global_feats)
 
         T_max = max(obj_proj.size(1), global_proj.size(1))
-        obj_proj = F.interpolate(obj_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
-        global_proj = F.interpolate(global_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
+        obj_proj = F.interpolate(obj_proj.transpose(1, 2), size=T_max, mode='linear', align_corners=False).transpose(1, 2)
+        global_proj = F.interpolate(global_proj.transpose(1, 2), size=T_max, mode='linear', align_corners=False).transpose(1, 2)
 
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)
 
         mem_out = self.memory_attention(concat_feats)
         aux_out = self.aux_attention(concat_feats)
+
+        # Project mem_out and aux_out to same dim as emsa_out
+        mem_out = self.mem_proj(mem_out)
+        aux_out = self.aux_proj(aux_out)
 
         emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)
         emsa_out = self.temporal_emsa(emsa_in).squeeze(2).transpose(1, 2)
@@ -590,8 +597,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = F.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
-
-
 
 
 
