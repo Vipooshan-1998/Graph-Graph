@@ -543,7 +543,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=self.concat_dim)
         self.temporal_emsa = EMSA(channels=self.concat_dim, factor=emsa_groups)
 
-        # Projection to unify output feature sizes
+        # Project memory/aux outputs to concat_dim
         self.mem_proj = nn.Linear(self.concat_dim, self.concat_dim)
         self.aux_proj = nn.Linear(self.concat_dim, self.concat_dim)
 
@@ -561,6 +561,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         Ensure x has temporal dimension T_max using linear interpolation.
         Works for [B, T, C] tensors.
         """
+        if x.dim() != 3:
+            raise ValueError(f"pad_to_max expects 3D tensor, got {x.shape}")
         B, T, C = x.size()
         if T != T_max:
             x = x.transpose(1, 2)  # [B, C, T]
@@ -579,8 +581,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         global_feats = global_feats.float()
 
         # Step 1: project
-        obj_proj = self.obj_fc(obj_feats)
-        global_proj = self.global_fc(global_feats)
+        obj_proj = self.obj_fc(obj_feats)           # [B, T_obj, embedding_dim]
+        global_proj = self.global_fc(global_feats)  # [B, T_glob, embedding_dim]
 
         # Step 2: align temporal dimension
         T_max = max(obj_proj.size(1), global_proj.size(1))
@@ -590,31 +592,33 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Step 3: concatenate features
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, concat_dim]
 
-        # Step 4: apply attention modules
-        mem_out = self.mem_proj(self.memory_attention(concat_feats))
-        aux_out = self.aux_proj(self.aux_attention(concat_feats))
+        # Step 4: memory & aux attention
+        mem_out = self.memory_attention(concat_feats)  # may be [B, T_mem, concat_dim]
+        aux_out = self.aux_attention(concat_feats)     # may be [B, T_aux, aux_dim]
 
-        # EMSA expects [B, C, 1, T]
-        emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)
-        emsa_out = self.temporal_emsa(emsa_in).squeeze(2).transpose(1, 2)  # [B, T_max, concat_dim]
-
-        # Step 5: pad outputs to same temporal length
+        # Step 5: pad temporal dimension to T_max
         mem_out = self.pad_to_max(mem_out, T_max)
         aux_out = self.pad_to_max(aux_out, T_max)
-        emsa_out = self.pad_to_max(emsa_out, T_max)
 
-        # Step 6: concatenate along feature dimension
+        # Step 6: project to concat_dim
+        mem_out = self.mem_proj(mem_out)
+        aux_out = self.aux_proj(aux_out)
+
+        # Step 7: EMSA
+        emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)  # [B, C, 1, T_max]
+        emsa_out = self.temporal_emsa(emsa_in).squeeze(2).transpose(1, 2)  # [B, T_max, concat_dim]
+
+        # Step 8: concatenate along feature dimension
         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
 
-        # Step 7: temporal pooling
+        # Step 9: temporal pooling
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
 
-        # Step 8: classifier
+        # Step 10: classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
-
 
 
 
