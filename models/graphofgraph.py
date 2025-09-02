@@ -535,22 +535,20 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         concat_dim = embedding_dim * 2  # after concatenating obj + global
 
-        # Ensure EMSA groups divide concat_dim
-        emsa_groups = 4  # choose a factor that divides concat_dim (e.g., 256, 512, etc.)
+        # EMSA groups
+        emsa_groups = 4  
 
-        # Three parallel modules
+        # Attention modules
         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
         self.temporal_emsa = EMSA(channels=concat_dim, factor=emsa_groups)
 
-        # Final classifier after concatenating outputs of all three
-        fused_dim = concat_dim * 3
-        self.classifier = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim // 2),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(fused_dim // 2, num_classes)
-        )
+        # Classifier (we will initialize with a placeholder, will adapt in forward)
+        self.num_classes = num_classes
+        self.classifier_fc1 = nn.Linear(concat_dim * 3, concat_dim * 3 // 2)
+        self.classifier_fc2 = nn.Linear(concat_dim * 3 // 2, num_classes)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, obj_feats, global_feats):
         # Add batch dimension if missing
@@ -598,12 +596,18 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # Fuse outputs
         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
-        pooled = fused.mean(dim=1)
 
-        logits_mc = self.classifier(pooled)
+        # Dynamic classifier in case dims changed
+        pooled = fused.mean(dim=1)
+        fc1 = nn.Linear(pooled.size(-1), pooled.size(-1) // 2).to(pooled.device)
+        fc2 = nn.Linear(pooled.size(-1) // 2, self.num_classes).to(pooled.device)
+
+        x = fc1(pooled)
+        x = self.relu(x)
+        x = self.dropout(x)
+        logits_mc = fc2(x)
         probs_mc = F.softmax(logits_mc, dim=-1)
         return logits_mc, probs_mc
-
 
 
 
