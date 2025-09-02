@@ -530,7 +530,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=256, img_feat_dim=2048, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
         
         # Linear projections for object and global features
@@ -542,8 +542,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Three parallel modules
         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
-        # Fix EMSA factor to divide concat_dim
-        self.temporal_emsa = EMSA(channels=concat_dim, factor=8)  # 512 % 8 == 0 ✅
+        self.temporal_emsa = EMSA(channels=concat_dim, factor=5)
 
         # Final classifier after concatenating outputs of all three
         fused_dim = concat_dim * 3
@@ -554,67 +553,67 @@ class SpaceTempGoG_detr_dad(nn.Module):
             nn.Linear(fused_dim // 2, num_classes)
         )
 
+    def pad_to_max(self, x, T_max):
+        """Ensure x is [B, T, C] and interpolate along time to T_max"""
+        if x.dim() == 2:  # [T, C] -> [1, T, C]
+            x = x.unsqueeze(0)
+        # transpose to [B, C, T] for 1D interpolation
+        x = x.transpose(1, 2)
+        x = F.interpolate(x, size=T_max, mode='linear', align_corners=False)
+        return x.transpose(1, 2)
+
     def forward(self, obj_feats, global_feats):
         # Add batch dimension if missing
         if obj_feats.dim() == 2:
-            obj_feats = obj_feats.unsqueeze(0)  # [1, T_obj, input_dim]
+            obj_feats = obj_feats.unsqueeze(0)
         if global_feats.dim() == 2:
-            global_feats = global_feats.unsqueeze(0)  # [1, T_global, img_feat_dim]
+            global_feats = global_feats.unsqueeze(0)
 
         obj_feats = obj_feats.float()
         global_feats = global_feats.float()
-
+        
         # Step 1: project
         obj_proj = self.obj_fc(obj_feats)           # [B, T_obj, embedding_dim]
         global_proj = self.global_fc(global_feats)  # [B, T_global, embedding_dim]
 
         # Step 2: align temporal dimension
-        T_obj, T_global = obj_proj.size(1), global_proj.size(1)
+        T_obj = obj_proj.size(1)
+        T_global = global_proj.size(1)
         T_max = max(T_obj, T_global)
 
         if T_obj != T_max:
-            obj_proj = obj_proj.transpose(1, 2)
-            obj_proj = F.interpolate(obj_proj, size=T_max, mode='linear', align_corners=False)
-            obj_proj = obj_proj.transpose(1, 2)
-
+            obj_proj = F.interpolate(obj_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
         if T_global != T_max:
-            global_proj = global_proj.transpose(1, 2)
-            global_proj = F.interpolate(global_proj, size=T_max, mode='linear', align_corners=False)
-            global_proj = global_proj.transpose(1, 2)
+            global_proj = F.interpolate(global_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
 
-        # Step 3: concatenate features
+        # Step 3: concatenate along feature dimension
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
 
-        # Step 4: apply three attention modules in parallel
+        # Step 4: forward through three attention modules
         mem_out = self.memory_attention(concat_feats)
         aux_out = self.aux_attention(concat_feats)
 
-        # For EMSA, reshape 3D [B, T, C] -> 4D [B, C, H=1, W=T]
+        # EMSA expects [B, C, H=1, W=T_max]
         emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)
-        emsa_out = self.temporal_emsa(emsa_in)
-        emsa_out = emsa_out.squeeze(2).transpose(1, 2)
+        emsa_out = self.temporal_emsa(emsa_in).squeeze(2).transpose(1, 2)
 
-        # Step 5: ensure same temporal length for all outputs before concatenation
-        def pad_to_max(x, T_max):
-            if x.size(1) != T_max:
-                return F.interpolate(x.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
-            return x
+        # Step 5: pad/interpolate all outputs to same T_max
+        mem_out = self.pad_to_max(mem_out, T_max)
+        aux_out = self.pad_to_max(aux_out, T_max)
+        emsa_out = self.pad_to_max(emsa_out, T_max)
 
-        mem_out = pad_to_max(mem_out, T_max)
-        aux_out = pad_to_max(aux_out, T_max)
-        emsa_out = pad_to_max(emsa_out, T_max)
-
-        # Step 6: concatenate outputs
+        # Step 6: concatenate along feature dimension
         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, fused_dim]
 
         # Step 7: pool over time
-        pooled = fused.mean(dim=1)
+        pooled = fused.mean(dim=1)  # [B, fused_dim]
 
         # Step 8: classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
+
 
 
 
