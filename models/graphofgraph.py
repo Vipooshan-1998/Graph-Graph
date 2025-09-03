@@ -590,10 +590,19 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # Concatenate features
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
+        B, T_max, C = concat_feats.shape
 
         # Apply attention modules
         mem_out = self.mem_proj(self.memory_attention(concat_feats))
-        aux_out = self.aux_proj(self.aux_attention(concat_feats))
+        
+        # Handle aux attention output shape issue
+        aux_raw = self.aux_attention(concat_feats)
+        # Reshape if necessary (from [1, 3800] to [B, T_max, C])
+        if aux_raw.dim() == 2 and aux_raw.size(0) == 1:
+            aux_reshaped = aux_raw.view(B, T_max, C)
+        else:
+            aux_reshaped = aux_raw
+        aux_out = self.aux_proj(aux_reshaped)
 
         # EMSA expects [B, C, H=1, W=T_max]
         emsa_in = concat_feats.transpose(1,2).unsqueeze(2)
