@@ -110,6 +110,14 @@ class SpaceTempGoG_detr_dad(nn.Module):
         fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
         print(fused.shape)  # torch.Size([1900, 1536])
 
+        # Check if 1900 can be reshaped into 100 x 19
+        batch_size = 100
+        seq_len = 19
+        assert fused.size(0) == batch_size * seq_len, "1900 is not divisible by 100"
+
+        # Reshape
+        fused = fused.view(batch_size, seq_len, fused.size(1))  # [100, 19, 1536]
+
         # # Add batch dimension
         fused = fused.unsqueeze(0)  # [1, 1900, 1536]
 
