@@ -90,25 +90,25 @@ class SpaceTempGoG_detr_dad(nn.Module):
         emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))  # [B, T_max, concat_dim]
 
         # ==== PRINT STATEMENTS ADDED ====
-        print(f"obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
-        print(f"concat_feats: {concat_feats.shape}")
-        print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
+        # print(f"obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
+        # print(f"concat_feats: {concat_feats.shape}")
+        # print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
         # ================================
 		
         # Concatenate all attention outputs
         # fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
         emsa_out = emsa_out.squeeze(0)
-        print(f"emsa_out after squeeze: {emsa_out.shape}")
+        # print(f"emsa_out after squeeze: {emsa_out.shape}")
         # fused = torch.cat([mem_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
         # Expand aux_out to [1900, 512]
         aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
 
-        print()
-        print(f"mem_out: {mem_out.shape}, aux_out_expanded: {aux_out_expanded.shape}, emsa_out: {emsa_out.shape}")
+        # print()
+        # print(f"mem_out: {mem_out.shape}, aux_out_expanded: {aux_out_expanded.shape}, emsa_out: {emsa_out.shape}")
 		
         # Concatenate along last dimension
         fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
-        print(fused.shape)  # torch.Size([1900, 1536])
+        # print(fused.shape)  # torch.Size([1900, 1536])
 
         # Check if 1900 can be reshaped into 100 x 19
         batch_size = 100
@@ -124,7 +124,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
-        print("pooled fused shape: ", fused.shape)  
+        # print("pooled fused shape: ", fused.shape)  
 
         # Classifier
         logits_mc = self.classifier(pooled)
