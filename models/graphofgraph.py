@@ -541,11 +541,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Attention modules
         self.memory_attention = Memory_Attention_Aggregation(embedding_dim)
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(embedding_dim)
-        self.temporal_emsa = EMSA(
-            dim=embedding_dim * 2,   # input concat features
-            groups=8,
-            height=1                 # sequence input
-        )
+
+        # EMSA expects channels divisible by groups=factor
+        # Our concat feats → 512, so choose factor=8 (512/8=64 is divisible)
+        self.temporal_emsa = EMSA(channels=embedding_dim * 2, factor=8)
 
         # Projection after attention
         self.mem_proj = nn.Linear(embedding_dim * 2, embedding_dim * 2)
@@ -561,16 +560,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
 
     def pad_to_max(self, x, T_max):
-        """
-        Ensure sequence length matches T_max.
-        Input: [B, T, C]
-        """
+        """Ensure sequence length matches T_max. Input: [B, T, C]"""
         if x.dim() != 3:
             raise ValueError(f"pad_to_max expects 3D tensor, got {x.shape}")
         B, T, C = x.size()
         if T == T_max:
             return x
-        # interpolate along time axis
         return F.interpolate(x.transpose(1, 2), size=T_max, mode='linear', align_corners=False).transpose(1, 2)
 
     def forward(self, obj_feats, global_feats):
@@ -602,12 +597,11 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # Prepare for EMSA (expects [B, C, H, W])
         emsa_in = concat_feats.transpose(1, 2).unsqueeze(2)  # [B, 512, 1, N]
-        emsa_out = self.temporal_emsa(emsa_in)               # [B, 512, 1, N]
+        emsa_out = self.temporal_emsa(emsa_in)               # [B*factor, C/factor, H, W]
         emsa_out = emsa_out.squeeze(2).transpose(1, 2)       # [B, N, 512]
 
         # Step 5: project mem_out and aux_out correctly
         B, T_max, _ = mem_out.size()
-
         mem_out = self.mem_proj(mem_out.reshape(-1, mem_out.size(-1))).view(B, T_max, -1)
         aux_out = self.aux_proj(aux_out.reshape(-1, aux_out.size(-1))).view(B, T_max, -1)
 
@@ -625,6 +619,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = torch.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
+
 
 
 
