@@ -39,7 +39,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.emsa_proj = nn.Linear(concat_dim, concat_dim)
 
         # Final classifier
-		concat_dim = 512
+        concat_dim = 512
         fused_dim = concat_dim * 3
         self.classifier = nn.Sequential(
             nn.Linear(fused_dim, fused_dim // 2),
