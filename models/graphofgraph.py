@@ -716,17 +716,17 @@ class SpaceTempGoG_detr_dad(nn.Module):
         print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
         # ================================
 		
-		# Concatenate all attention outputs
+        # Concatenate all attention outputs
         # fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
         emsa_out = emsa_out.squeeze(0)
         print(f"emsa_out after squeeze: {emsa_out.shape}")
         # fused = torch.cat([mem_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
-		# Expand aux_out to [1900, 512]
-		aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
-
-		# Concatenate along last dimension
-		fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
-		print(fused.shape)  # torch.Size([1900, 1536])
+        # Expand aux_out to [1900, 512]
+        aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
+		
+        # Concatenate along last dimension
+        fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
+        print(fused.shape)  # torch.Size([1900, 1536])
 
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
