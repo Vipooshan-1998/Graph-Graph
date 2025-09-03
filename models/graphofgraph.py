@@ -101,8 +101,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         print(f"emsa_out after squeeze: {emsa_out.shape}")
         # fused = torch.cat([mem_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
         # Expand aux_out to [1900, 512]
-        # aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
-        aux_out_expanded = aux_out.unsqueeze(1).expand(-1, mem_out.size(1), -1)
+        aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
 
         print()
         print(f"mem_out: {mem_out.shape}, aux_out_expanded: {aux_out_expanded.shape}, emsa_out: {emsa_out.shape}")
@@ -112,7 +111,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         print(fused.shape)  # torch.Size([1900, 1536])
 
         # # Add batch dimension
-        # fused = fused.unsqueeze(0)  # [1, 1900, 1536]
+        fused = fused.unsqueeze(0)  # [1, 1900, 1536]
 
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
