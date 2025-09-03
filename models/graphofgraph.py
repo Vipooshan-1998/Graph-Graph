@@ -589,67 +589,33 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # Concatenate features
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
-        B, T_max, C = concat_feats.shape
 
         # Apply attention modules
-        mem_out = self.mem_proj(self.memory_attention(concat_feats))
-        
-        # Handle aux attention output shape issue
-        aux_raw = self.aux_attention(concat_feats)
-        
-        # Debug print to understand the shapes
-        print(f"concat_feats shape: {concat_feats.shape}")  # Should be [B, T_max, C]
-        print(f"aux_raw shape: {aux_raw.shape}")  # This shows the actual shape
-        
-        # Reshape aux_raw to match expected dimensions
-        if aux_raw.shape != concat_feats.shape:
-            # Calculate the correct dimensions
-            total_elements = aux_raw.numel()
-            if total_elements == B * T_max * C:
-                # Perfect match, just reshape
-                aux_reshaped = aux_raw.view(B, T_max, C)
-            elif total_elements == B * T_max:
-                # aux_attention might be returning attention weights instead of features
-                # Expand to match feature dimensions
-                aux_reshaped = aux_raw.unsqueeze(-1).expand(-1, -1, C)
-            else:
-                # Handle other cases - use interpolation or padding
-                if aux_raw.dim() == 2 and aux_raw.size(0) == B:
-                    # If it's [B, some_dim], try to interpolate to [B, T_max, C]
-                    aux_temp = aux_raw.view(B, -1).unsqueeze(-1)  # [B, some_dim, 1]
-                    aux_temp = F.interpolate(aux_temp, size=T_max, mode='linear')  # [B, T_max, 1]
-                    aux_reshaped = aux_temp.expand(-1, -1, C)  # [B, T_max, C]
-                else:
-                    # Fallback: reshape to best possible match
-                    new_T = total_elements // (B * C)
-                    if new_T * B * C == total_elements:
-                        aux_reshaped = aux_raw.view(B, new_T, C)
-                        # Interpolate temporal dimension if needed
-                        if new_T != T_max:
-                            aux_reshaped = F.interpolate(aux_reshaped.transpose(1,2), size=T_max, mode='linear').transpose(1,2)
-                    else:
-                        raise ValueError(f"Cannot reshape aux_attention output from {aux_raw.shape} to [{B}, {T_max}, {C}]")
-        else:
-            aux_reshaped = aux_raw
+        mem_out = self.mem_proj(self.memory_attention(concat_feats))  # [B, T_max, concat_dim]
+        aux_out_pre = self.aux_attention(concat_feats)  # [B, T_max, ?]
 
-        aux_out = self.aux_proj(aux_reshaped)
+        # Ensure aux_attention output has correct shape
+        concat_dim = self.embedding_dim * 2
+        if aux_out_pre.size(-1) != concat_dim:
+            # Project feature dimension to concat_dim, preserving temporal dimension
+            aux_out_pre = nn.Linear(aux_out_pre.size(-1), concat_dim).to(aux_out_pre.device)(aux_out_pre)
+        aux_out = self.aux_proj(aux_out_pre)  # [B, T_max, concat_dim]
 
         # EMSA expects [B, C, H=1, W=T_max]
-        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)
-        emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))
+        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)  # [B, concat_dim, 1, T_max]
+        emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))  # [B, T_max, concat_dim]
 
         # Concatenate all attention outputs
         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
 
         # Pool over temporal dimension
-        pooled = fused.mean(dim=1)
+        pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
 
         # Classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
-
 
 
 # class SpaceTempGoG_detr_dota(nn.Module):
