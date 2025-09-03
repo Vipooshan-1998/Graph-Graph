@@ -107,6 +107,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
         print(fused.shape)  # torch.Size([1900, 1536])
 
+        # Add batch dimension
+        fused = fused.unsqueeze(0)  # [1, 1900, 1536]
+
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
 
