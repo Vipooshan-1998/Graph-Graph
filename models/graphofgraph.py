@@ -534,11 +534,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, emsa_groups=4):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
-        # Make concat_dim divisible by EMSA groups
         concat_dim = embedding_dim * 2
         assert concat_dim % emsa_groups == 0, f"concat_dim={concat_dim} must be divisible by EMSA groups={emsa_groups}"
         self.concat_dim = concat_dim
-        self.emsa_groups = emsa_groups
 
         # Linear projections
         self.obj_proj = nn.Linear(input_dim, embedding_dim)
@@ -564,7 +562,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
 
     def forward(self, obj_feats, global_feats):
-        # Ensure dtype/device consistency
         ref = next(self.parameters())
         obj_feats = obj_feats.to(dtype=ref.dtype, device=ref.device)
         global_feats = global_feats.to(dtype=ref.dtype, device=ref.device)
@@ -599,9 +596,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         print(f"mem_out: {mem_out.shape}")
 
         # Auxiliary attention
-        aux_out = self.aux_attention(concat_feats)  # [B, T_max, ?]
+        aux_out = self.aux_attention(concat_feats)  # [B, T_max, something]
         if aux_out.size(-1) != self.concat_dim:
-            # Project feature dimension to concat_dim
+            # Use the module's projection to map features to concat_dim
             aux_out = self.aux_proj(aux_out)
         print(f"aux_out: {aux_out.shape}")
 
