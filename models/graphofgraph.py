@@ -605,7 +605,13 @@ class SpaceTempGoG_detr_dad(nn.Module):
         emsa_in = concat_feats.transpose(1,2).unsqueeze(2)  # [B, concat_dim, 1, T_max]
         emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))  # [B, T_max, concat_dim]
 
-        # Concatenate all attention outputs
+        # ==== PRINT STATEMENTS ADDED ====
+        print(f"obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
+        print(f"concat_feats: {concat_feats.shape}")
+        print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
+        # ================================
+		
+		# Concatenate all attention outputs
         fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
 
         # Pool over temporal dimension
