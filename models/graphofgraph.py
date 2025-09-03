@@ -103,6 +103,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Expand aux_out to [1900, 512]
         # aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
         aux_out_expanded = aux_out.unsqueeze(1).expand(-1, mem_out.size(1), -1)
+
+        print()
+        print(f"mem_out: {mem_out.shape}, aux_out_expanded: {aux_out_expanded.shape}, emsa_out: {emsa_out.shape}")
 		
         # Concatenate along last dimension
         fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
