@@ -120,9 +120,11 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # # Add batch dimension
         fused = fused.unsqueeze(0)  # [1, 1900, 1536]
-
+        print("fused shape after unsqueeze: ", fused.shape)
+		
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
+        print("pooled fused shape: ", fused.shape)  
 
         # Classifier
         logits_mc = self.classifier(pooled)
