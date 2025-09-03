@@ -623,6 +623,7 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 
 #         return logits_mc, probs_mc
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -654,9 +655,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.emsa_proj = nn.Linear(concat_dim, concat_dim)
 
         # Final classifier
-        fused_dim = concat_dim * 3
+        fused_dim = concat_dim * 3  # Not used directly anymore, replaced with flattened fused size
         self.classifier = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim // 2),
+            nn.Linear(3 * concat_dim * 1000, fused_dim // 2),  # Use a placeholder for now; adjust after knowing T_max
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
             nn.Linear(fused_dim // 2, num_classes)
@@ -708,20 +709,20 @@ class SpaceTempGoG_detr_dad(nn.Module):
         print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
         # ==========================
 
-        # Flatten attention outputs
-        mem_flat = mem_out.flatten(start_dim=1)   # [B, T_max*concat_dim]
-        aux_flat = aux_out.flatten(start_dim=1)   # [B, T_max*concat_dim]
-        emsa_flat = emsa_out.flatten(start_dim=1) # [B, T_max*concat_dim]
+        # Flatten all attention outputs
+        mem_flat = mem_out.flatten(start_dim=1)
+        aux_flat = aux_out.flatten(start_dim=1)
+        emsa_flat = emsa_out.flatten(start_dim=1)
 
-        # Concatenate flattened features
-        fused = torch.cat([mem_flat, aux_flat, emsa_flat], dim=-1)  # [B, 3*T_max*concat_dim]
-        print(f"fused (flattened) shape: {fused.shape}")
+        fused = torch.cat([mem_flat, aux_flat, emsa_flat], dim=-1)
+        print(f"fused (1D per sample) shape: {fused.shape}")
 
         # Classifier
         logits_mc = self.classifier(fused)
         probs_mc = F.softmax(logits_mc, dim=-1)
 
         return logits_mc, probs_mc
+
 
 
 # class SpaceTempGoG_detr_dota(nn.Module):
