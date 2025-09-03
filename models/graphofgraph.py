@@ -119,8 +119,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         fused = fused.view(batch_size, seq_len, fused.size(1))  # [100, 19, 1536]
 
         # # Add batch dimension
-        fused = fused.unsqueeze(0)  # [1, 1900, 1536]
-        print("fused shape after unsqueeze: ", fused.shape)
+        # fused = fused.unsqueeze(0)  # [1, 1900, 1536]
+        # print("fused shape after unsqueeze: ", fused.shape)
 		
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
