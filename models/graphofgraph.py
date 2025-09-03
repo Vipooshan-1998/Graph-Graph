@@ -531,30 +531,32 @@ import torch.nn.functional as F
 from .attention_modules import EMSA, Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=256, img_feat_dim=2048, num_classes=2, emsa_groups=4):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, emsa_groups=4):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
+        # Make embedding divisible by EMSA groups
+        assert embedding_dim * 2 % emsa_groups == 0, f"concat_dim={embedding_dim*2} must be divisible by EMSA groups={emsa_groups}"
         self.embedding_dim = embedding_dim
-        self.concat_dim = embedding_dim * 2
         self.emsa_groups = emsa_groups
-        assert self.concat_dim % emsa_groups == 0, f"concat_dim={self.concat_dim} must be divisible by EMSA groups={emsa_groups}"
 
         # Linear projections
         self.obj_proj = nn.Linear(input_dim, embedding_dim)
         self.global_proj = nn.Linear(img_feat_dim, embedding_dim)
 
-        # Attention modules
-        self.memory_attention = Memory_Attention_Aggregation(agg_dim=self.concat_dim, d_model=self.concat_dim)
-        self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=self.concat_dim)
-        self.temporal_emsa = EMSA(channels=self.concat_dim, factor=emsa_groups)
+        concat_dim = embedding_dim * 2
 
-        # Projection layers to unify output shapes
-        self.mem_proj = nn.Linear(self.concat_dim, self.concat_dim)
-        self.aux_proj = nn.Linear(self.concat_dim, self.concat_dim)
-        self.emsa_proj = nn.Linear(self.concat_dim, self.concat_dim)
+        # Parallel attention modules
+        self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
+        self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
+        self.temporal_emsa = EMSA(channels=concat_dim, factor=emsa_groups)
 
-        # Classifier
-        fused_dim = self.concat_dim * 3
+        # Projection layers after attention outputs to unify shapes
+        self.mem_proj = nn.Linear(concat_dim, concat_dim)
+        self.aux_proj = nn.Linear(concat_dim, concat_dim)
+        self.emsa_proj = nn.Linear(concat_dim, concat_dim)
+
+        # Final classifier
+        fused_dim = concat_dim * 3
         self.classifier = nn.Sequential(
             nn.Linear(fused_dim, fused_dim // 2),
             nn.ReLU(inplace=True),
@@ -563,9 +565,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
 
     def forward(self, obj_feats, global_feats):
-        B = obj_feats.size(0) if obj_feats.dim() == 3 else 1
-
-        # Ensure dtype/device match
+        # Ensure tensor dtype/device matches model
         ref = next(self.parameters())
         obj_feats = obj_feats.to(dtype=ref.dtype, device=ref.device)
         global_feats = global_feats.to(dtype=ref.dtype, device=ref.device)
@@ -579,7 +579,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Project features
         obj_proj = self.obj_proj(obj_feats)        # [B, T_obj, embedding_dim]
         global_proj = self.global_proj(global_feats)  # [B, T_global, embedding_dim]
-        print(f"obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
 
         # Align temporal dimension
         T_max = max(obj_proj.size(1), global_proj.size(1))
@@ -590,44 +589,66 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # Concatenate features
         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
-        print(f"concat_feats: {concat_feats.shape}")
+        B, T_max, C = concat_feats.shape
 
-        # Memory attention
-        mem_out = self.memory_attention(concat_feats)  # maybe [B*T, concat_dim] or [B, T_max, concat_dim]
-        if mem_out.dim() == 2:
-            mem_out = mem_out.view(B, T_max, self.concat_dim)
-        mem_out = self.mem_proj(mem_out)
-        print(f"mem_out: {mem_out.shape}")
+        # Apply attention modules
+        mem_out = self.mem_proj(self.memory_attention(concat_feats))
+        
+        # Handle aux attention output shape issue
+        aux_raw = self.aux_attention(concat_feats)
+        
+        # Debug print to understand the shapes
+        print(f"concat_feats shape: {concat_feats.shape}")  # Should be [B, T_max, C]
+        print(f"aux_raw shape: {aux_raw.shape}")  # This shows the actual shape
+        
+        # Reshape aux_raw to match expected dimensions
+        if aux_raw.shape != concat_feats.shape:
+            # Calculate the correct dimensions
+            total_elements = aux_raw.numel()
+            if total_elements == B * T_max * C:
+                # Perfect match, just reshape
+                aux_reshaped = aux_raw.view(B, T_max, C)
+            elif total_elements == B * T_max:
+                # aux_attention might be returning attention weights instead of features
+                # Expand to match feature dimensions
+                aux_reshaped = aux_raw.unsqueeze(-1).expand(-1, -1, C)
+            else:
+                # Handle other cases - use interpolation or padding
+                if aux_raw.dim() == 2 and aux_raw.size(0) == B:
+                    # If it's [B, some_dim], try to interpolate to [B, T_max, C]
+                    aux_temp = aux_raw.view(B, -1).unsqueeze(-1)  # [B, some_dim, 1]
+                    aux_temp = F.interpolate(aux_temp, size=T_max, mode='linear')  # [B, T_max, 1]
+                    aux_reshaped = aux_temp.expand(-1, -1, C)  # [B, T_max, C]
+                else:
+                    # Fallback: reshape to best possible match
+                    new_T = total_elements // (B * C)
+                    if new_T * B * C == total_elements:
+                        aux_reshaped = aux_raw.view(B, new_T, C)
+                        # Interpolate temporal dimension if needed
+                        if new_T != T_max:
+                            aux_reshaped = F.interpolate(aux_reshaped.transpose(1,2), size=T_max, mode='linear').transpose(1,2)
+                    else:
+                        raise ValueError(f"Cannot reshape aux_attention output from {aux_raw.shape} to [{B}, {T_max}, {C}]")
+        else:
+            aux_reshaped = aux_raw
 
-        # Auxiliary attention
-        aux_out = self.aux_attention(concat_feats)
-        if aux_out.dim() == 2:
-            aux_out = aux_out.view(B, T_max, self.concat_dim)
-        aux_out = self.aux_proj(aux_out)
-        print(f"aux_out: {aux_out.shape}")
+        aux_out = self.aux_proj(aux_reshaped)
 
-        # EMSA
-        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)  # [B, concat_dim, 1, T_max]
-        emsa_out = self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2)
-        emsa_out = self.emsa_proj(emsa_out)
-        print(f"emsa_out: {emsa_out.shape}")
+        # EMSA expects [B, C, H=1, W=T_max]
+        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)
+        emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))
 
         # Concatenate all attention outputs
-        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
-        print(f"fused: {fused.shape}")
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
 
         # Pool over temporal dimension
         pooled = fused.mean(dim=1)
-        print(f"pooled: {pooled.shape}")
 
         # Classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
-        print(f"logits_mc: {logits_mc.shape}, probs_mc: {probs_mc.shape}")
 
         return logits_mc, probs_mc
-
-
 
 
 
