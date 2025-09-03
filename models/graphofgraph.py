@@ -525,7 +525,6 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 #         return logits_mc, probs_mc
 
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -543,20 +542,19 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Linear projections
         self.obj_proj = nn.Linear(input_dim, embedding_dim)
         self.global_proj = nn.Linear(img_feat_dim, embedding_dim)
-
         concat_dim = embedding_dim * 2
 
-        # Parallel attention modules
+        # Attention modules
         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
         self.temporal_emsa = EMSA(channels=concat_dim, factor=emsa_groups)
 
-        # Projection layers after attention outputs to unify shapes
+        # Projection layers to unify shapes
         self.mem_proj = nn.Linear(concat_dim, concat_dim)
         self.aux_proj = nn.Linear(concat_dim, concat_dim)
         self.emsa_proj = nn.Linear(concat_dim, concat_dim)
 
-        # Final classifier
+        # Classifier
         fused_dim = concat_dim * 3
         self.classifier = nn.Sequential(
             nn.Linear(fused_dim, fused_dim // 2),
@@ -577,9 +575,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
         if global_feats.dim() == 2:
             global_feats = global_feats.unsqueeze(0)
 
+        print(f"Input obj_feats: {obj_feats.shape}, global_feats: {global_feats.shape}")
+
         # Project features
-        obj_proj = self.obj_proj(obj_feats)        # [B, T_obj, embedding_dim]
-        global_proj = self.global_proj(global_feats)  # [B, T_global, embedding_dim]
+        obj_proj = self.obj_proj(obj_feats)
+        global_proj = self.global_proj(global_feats)
+        print(f"After projection obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
 
         # Align temporal dimension
         T_max = max(obj_proj.size(1), global_proj.size(1))
@@ -587,35 +588,43 @@ class SpaceTempGoG_detr_dad(nn.Module):
             obj_proj = F.interpolate(obj_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
         if global_proj.size(1) != T_max:
             global_proj = F.interpolate(global_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
+        print(f"After interpolation obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
 
         # Concatenate features
-        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
+        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)
+        print(f"Concatenated features shape: {concat_feats.shape}")
 
-        # Apply attention modules
-        mem_out = self.mem_proj(self.memory_attention(concat_feats))  # [B, T_max, concat_dim]
-        aux_out_pre = self.aux_attention(concat_feats)  # [B, T_max, ?]
+        # Apply memory attention
+        mem_out = self.mem_proj(self.memory_attention(concat_feats))
+        print(f"mem_out shape: {mem_out.shape}")
 
-        # Ensure aux_attention output has correct shape
+        # Apply auxiliary attention and ensure correct feature size
+        aux_out_pre = self.aux_attention(concat_feats)
         if aux_out_pre.size(-1) != self.embedding_dim * 2:
-            # Project feature dimension to concat_dim, preserving temporal dimension
-            aux_out_pre = nn.Linear(aux_out_pre.size(-1), self.embedding_dim * 2).to(aux_out_pre.device)(aux_out_pre)
-        aux_out = self.aux_proj(aux_out_pre)  # [B, T_max, concat_dim]
+            aux_out_pre = nn.Linear(aux_out_pre.size(-1), self.embedding_dim*2).to(aux_out_pre.device)(aux_out_pre)
+        aux_out = self.aux_proj(aux_out_pre)
+        print(f"aux_out shape: {aux_out.shape}")
 
-        # EMSA expects [B, C, H=1, W=T_max]
-        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)  # [B, concat_dim, 1, T_max]
-        emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))  # [B, T_max, concat_dim]
+        # Apply EMSA
+        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)
+        emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))
+        print(f"emsa_out shape: {emsa_out.shape}")
 
         # Concatenate all attention outputs
-        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
+        fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)
+        print(f"Fused output shape: {fused.shape}")
 
         # Pool over temporal dimension
-        pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
+        pooled = fused.mean(dim=1)
+        print(f"Pooled features shape: {pooled.shape}")
 
         # Classifier
         logits_mc = self.classifier(pooled)
         probs_mc = F.softmax(logits_mc, dim=-1)
+        print(f"Logits: {logits_mc.shape}, Probabilities: {probs_mc.shape}")
 
         return logits_mc, probs_mc
+
 
 
 
