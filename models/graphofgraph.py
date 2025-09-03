@@ -718,6 +718,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 		
 		# Concatenate all attention outputs
         # fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
+        emsa_out = emsa_out.squeeze(0)
         fused = torch.cat([mem_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
 
         # Pool over temporal dimension
