@@ -1562,49 +1562,24 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
-        # --- NEW: Edge encoder (richer edge features) ---
-        # Input is scalar edge weight -> learned vector of size edge_dim
-        self.edge_dim = 64
-        self.edge_encoder = nn.Sequential(
-            nn.Linear(1, 32),
-            nn.ReLU(),
-            nn.Linear(32, self.edge_dim),
-            nn.ReLU()
-        )
-
         # --- NEW: Cross-attention between graph and frame embeddings ---
-        # We'll project g_embed and frame features to a common attn_dim and run MHA.
-        # Choose attn_dim = embedding_dim * num_heads so it aligns with g_embed high-dim.
         self.attn_dim = embedding_dim * self.num_heads  # e.g., 128 * 4 = 512
-        self.g_proj_attn = nn.Linear(embedding_dim * self.num_heads, self.attn_dim)  # identity-like, kept for clarity
+        self.g_proj_attn = nn.Linear(embedding_dim * self.num_heads, self.attn_dim)
         self.frame_proj_attn = nn.Linear(embedding_dim * 2, self.attn_dim)  # project 256 -> 512
-        # MultiheadAttention with batch_first
         self.cross_attn = MultiheadAttention(embed_dim=self.attn_dim, num_heads=self.num_heads, batch_first=True)
-        # Project attn output back to frame_embed_img dim (which is out_channels*heads, equals concat half)
         self.attn_out_proj = nn.Linear(self.attn_dim, (embedding_dim // 2) * self.num_heads)
 
         # --- Activations ---
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    def _cast_edge(self, edge_attr, ref):
-        """
-        Ensure edge_attr has same dtype and device as ref tensor.
-        Accepts edge_attr of shape (E, 1) or (E,) and returns (E, edge_dim)
-        """
-        # If edge_attr is scalar shape, make it (E,1)
-        if edge_attr.dim() == 1:
-            edge_attr = edge_attr.unsqueeze(1)
-        edge_attr = edge_attr.to(ref.dtype).to(ref.device)                # match dtype/device
-        return self.edge_encoder(edge_attr)  # (E, edge_dim)
-
     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
                 temporal_adj_list, temporal_edge_w, batch_vec):
         """
         x: (N_nodes, input_dim + label_dim)
-        edge_embeddings: (E, some_dim) where we take last scalar as in previous code
+        edge_embeddings: (E, some_dim) where we take last scalar as before
         temporal_edge_w: (E_temporal,) or (E_temporal, 1)
-        img_feat: (B, img_feat_dim)  OR (num_frames, img_feat_dim) depending on your pipeline
+        img_feat: (B, img_feat_dim)
         """
 
         # --- Node feature processing ---
@@ -1612,20 +1587,16 @@ class SpaceTempGoG_detr_dad(nn.Module):
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
         x = torch.cat((x_feat, x_label), dim=1)  # (N, 320)
 
-        # --- Spatial graph conv (with encoded edge features) ---
-        # Extract scalar edge weight used previously and encode it
-        # edge_embeddings[:, -1] was your prior scalar; make it shape (E,1) then encode
-        edge_attr_spatial_scalar = edge_embeddings[:, -1].unsqueeze(1)  # (E,1)
-        edge_attr_spatial = self._cast_edge(edge_attr_spatial_scalar, x)  # (E, edge_dim)
+        # --- Spatial graph conv ---
+        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1)  # scalar
         n_embed_spatial = self.relu(self.gc1_norm1(
             self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
         ))
 
-        # --- Temporal graph conv (with encoded temporal edge features) ---
+        # --- Temporal graph conv ---
         temporal_scalar = temporal_edge_w.unsqueeze(1)  # (E_temporal,1)
-        edge_attr_temporal = self._cast_edge(temporal_scalar, x)  # (E_temporal, edge_dim)
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_scalar)
         ))
 
         # --- concat + pooling ---
@@ -1633,56 +1604,41 @@ class SpaceTempGoG_detr_dad(nn.Module):
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
         g_embed = global_max_pool(n_embed, batch_vec)  # (batch, embedding_dim * num_heads)
 
-        # --- Frame features (unchanged flow) ---
-        # Accept img_feat shape (B, img_feat_dim). If you have per-node features, convert accordingly.
+        # --- Frame features ---
         frame_feats = self.img_fc(img_feat)  # (B, 256)
-        # Temporal transformer expects (batch, seq, feat) or (1, B, feat) as in original - keep same behavior:
         frame_feats_t = frame_feats.unsqueeze(0)      # (1, B, 256)
-        frame_encoded_t = self.temporal_transformer(frame_feats_t)  # (1, B, 256) or (B, 1, 256) depending on PyTorch
-        # safe transpose handling (ensure batch-first)
+        frame_encoded_t = self.temporal_transformer(frame_feats_t)
         if frame_encoded_t.shape[0] != frame_feats_t.shape[0]:
             frame_encoded_t = frame_encoded_t.transpose(0, 1)
         frame_encoded = frame_encoded_t.squeeze(0)    # (B, 256)
 
-        # --- Cross-attention (NEW) ---
-        # Project g_embed and frame_encoded to attn_dim
-        # g_embed is (batch, g_dim) where g_dim == embedding_dim * num_heads
-        # Ensure g_embed has correct shape (batch, g_dim)
-        g_for_attn = self.g_proj_attn(g_embed)        # (batch, attn_dim)
-        frame_for_attn = self.frame_proj_attn(frame_encoded)  # (batch, attn_dim)
+        # --- Cross-attention (graph ↔ frame) ---
+        g_for_attn = self.g_proj_attn(g_embed)              # (B, 512)
+        frame_for_attn = self.frame_proj_attn(frame_encoded)  # (B, 512)
 
-        # Make them (batch, seq=1, attn_dim) for MHA (single-query)
-        g_q = g_for_attn.unsqueeze(1)                # (batch, 1, attn_dim)
-        frame_kv = frame_for_attn.unsqueeze(1)       # (batch, 1, attn_dim)
+        g_q = g_for_attn.unsqueeze(1)       # (B, 1, 512)
+        frame_kv = frame_for_attn.unsqueeze(1)  # (B, 1, 512)
 
-        # run cross-attention: graph queries the frame features
-        # Use need_weights=False and get attn_output shape (batch, 1, attn_dim)
         attn_output, _ = self.cross_attn(g_q, frame_kv, frame_kv, need_weights=False)
-        attn_output = attn_output.squeeze(1)         # (batch, attn_dim)
+        attn_output = attn_output.squeeze(1)         # (B, 512)
 
-        # Project attn output back to frame_embed_img size and fuse by addition
-        attn_to_img = self.attn_out_proj(attn_output)  # (batch, frame_embed_img_dim) == (batch, 256)
-        # Note: frame_embed_img will be computed next; we'll add attn_to_img to it to fuse info.
+        attn_to_img = self.attn_out_proj(attn_output)  # (B, 256)
 
-        # --- Frame-level graph embeddings (unchanged input) ---
-        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))   # (batch, 256)
-        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(frame_encoded, video_adj_list)))  # (batch, 256)
+        # --- Frame-level graph embeddings ---
+        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))   # (B, 256)
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(frame_encoded, video_adj_list)))  # (B, 256)
 
-        # Fuse attention info into frame_embed_img (elementwise add)
-        # ensure shapes match
-        if attn_to_img.shape != frame_embed_img.shape:
-            # cast/resize if needed (shouldn't happen), but keep safe fallback:
-            attn_to_img = attn_to_img[:, :frame_embed_img.shape[1]]
-
+        # Fuse attention info into frame_embed_img
         frame_embed_img = frame_embed_img + attn_to_img
 
-        # --- Concatenate and classify (flow preserved) ---
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), dim=1)  # (batch, concat_dim)
+        # --- Concatenate and classify ---
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), dim=1)  # (B, 512)
         frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
         logits_mc = self.classify_fc2(frame_embed_)
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
