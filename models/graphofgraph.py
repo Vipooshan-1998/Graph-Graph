@@ -1255,7 +1255,7 @@ try:
 except Exception:
     TIMM_AVAILABLE = False
 
-class SpaceTempGoG_DETR_DOTA_Transformer(nn.Module):
+class SpaceTempGoG_detr_dota(nn.Module):
     """
     Upgraded architecture with:
       - Graph TransformerConv for object graph encoding
