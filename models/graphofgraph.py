@@ -1243,7 +1243,6 @@ from torch_geometric.nn import (
     InstanceNorm
 )
 
-
 class SpaceTempGoG_detr_dota(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2,
                  use_vit_backbone=False, num_heads=4, dropout=0.1, transformer_layers=2):
@@ -1292,7 +1291,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
             dim_feedforward=embedding_dim * 4,
             dropout=self.dropout,
             activation="gelu",
-            batch_first=True   # ✅ ensures (batch, seq, feat)
+            batch_first=True   # 👈 enforce batch-first in encoder layer
         )
         self.temporal_transformer = nn.TransformerEncoder(
             encoder_layer, num_layers=transformer_layers
@@ -1303,7 +1302,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
             embed_dim=embedding_dim * 2,
             num_heads=self.num_heads,
             dropout=self.dropout,
-            batch_first=True   # ✅ ensures input/output are (batch, seq, feat)
+            batch_first=True   # 👈 enforce batch-first in MHA too
         )
 
         # Second-level graph convs
@@ -1368,9 +1367,13 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
         # --- Frame features ---
         frame_feats = self._project_img_feats(img_feat)      # (batch, seq, emb*2)
-        frame_encoded = self.temporal_transformer(frame_feats)  # (batch, seq, emb*2)
+        frame_encoded = self.temporal_transformer(frame_feats)
 
-        # Cross-attention: graph query attends to frame sequence
+        # ✅ Safe transpose: ensure (batch, seq, feat)
+        if frame_encoded.shape[0] != frame_feats.shape[0]:
+            frame_encoded = frame_encoded.transpose(0, 1)
+
+        # --- Cross-attention ---
         g_q = self.g_proj(g_embed).unsqueeze(1)              # (batch, 1, emb*2)
         attn_output, _ = self.cross_attn(
             g_q, frame_encoded, frame_encoded, need_weights=False
@@ -1388,5 +1391,6 @@ class SpaceTempGoG_detr_dota(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
