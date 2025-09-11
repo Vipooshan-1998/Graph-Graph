@@ -1358,6 +1358,17 @@ class SpaceTempGoG_detr_dota(nn.Module):
         return logits_mc, probs_mc
 
 
+import torch
+import torch.nn as nn
+from torch_geometric.nn import (
+    TransformerConv,
+    SAGPooling,
+    global_max_pool,
+    InstanceNorm
+)
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
@@ -1419,7 +1430,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # ---- FIX: determine concat dimension correctly ----
+        # FIX: compute concat dim correctly (sg + img embeddings)
         concat_dim = (embedding_dim // 2 * self.num_heads) + (embedding_dim // 2 * self.num_heads)
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
@@ -1451,10 +1462,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         g_embed = global_max_pool(n_embed, batch_vec)
 
         # process I3D features with Transformer
-        img_feat = self.img_fc(img_feat)              # (B, 256)
-        img_feat = img_feat.unsqueeze(0)              # (1, B, 256)
+        img_feat = self.img_fc(img_feat)               # (B, 256)
+        img_feat = img_feat.unsqueeze(0)               # (1, B, 256)
         img_feat = self.temporal_transformer(img_feat)  # (1, B, 256)
-        img_feat = img_feat.squeeze(0)                # (B, 256)
+        img_feat = img_feat.squeeze(0)                 # (B, 256)
 
         # frame-level embeddings
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
@@ -1469,6 +1480,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
