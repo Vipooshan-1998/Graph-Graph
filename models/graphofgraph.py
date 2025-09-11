@@ -1243,6 +1243,7 @@ from torch_geometric.nn import (
     InstanceNorm
 )
 
+
 class SpaceTempGoG_detr_dota(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2,
                  use_vit_backbone=False, num_heads=4, dropout=0.1, transformer_layers=2):
@@ -1254,13 +1255,13 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.use_vit_backbone = use_vit_backbone
         self.dropout = dropout
 
-        # process the object graph features
+        # --- Object graph features ---
         self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)
         self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
         self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
-        # Spatial GNN
+        # --- Spatial GNN ---
         self.gc1_spatial = GATv2Conv(
             embedding_dim * 2 + embedding_dim // 2,
             embedding_dim // 2,
@@ -1269,7 +1270,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         )
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
-        # Temporal GNN
+        # --- Temporal GNN ---
         self.gc1_temporal = GATv2Conv(
             embedding_dim * 2 + embedding_dim // 2,
             embedding_dim // 2,
@@ -1278,44 +1279,43 @@ class SpaceTempGoG_detr_dota(nn.Module):
         )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)
 
-        # Pooling
+        # --- Pooling ---
         self.pool = SAGPooling(embedding_dim, ratio=0.8)
 
-        # Project image/I3D features
+        # --- Image/I3D projection ---
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
 
-        # Transformer for temporal encoding of frame features
+        # --- Transformer for temporal frame encoding ---
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=self.num_heads,
             dim_feedforward=embedding_dim * 4,
             dropout=self.dropout,
             activation="gelu",
-            batch_first=True   # 👈 enforce batch-first in encoder layer
+            batch_first=True  # important for batch-first inputs
         )
         self.temporal_transformer = nn.TransformerEncoder(
             encoder_layer, num_layers=transformer_layers
         )
 
-        # Cross-attention: query from graph, key/value from frame features
+        # --- Cross-attention: query from graph, key/value from frame sequence ---
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=embedding_dim * 2,
             num_heads=self.num_heads,
             dropout=self.dropout,
-            batch_first=True   # 👈 enforce batch-first in MHA too
+            batch_first=True
         )
 
-        # Second-level graph convs
+        # --- Second-level graph convs ---
         self.gc2_sg = GATv2Conv(embedding_dim, embedding_dim // 2, heads=1)
         self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
-
         self.gc2_i3d = GATv2Conv(embedding_dim * 2, embedding_dim // 2, heads=1)
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
-        # Projection for g_embed → match attention dim
+        # Projection for graph embedding → cross-attention
         self.g_proj = nn.Linear(embedding_dim, embedding_dim * 2)
 
-        # Classifier
+        # --- Classifier ---
         self.classify_fc1 = nn.Linear(embedding_dim * 2, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -1337,8 +1337,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
                 feat = img_feat
             else:
                 raise ValueError(f"Unexpected img_feat shape: {img_feat.shape}")
-
-            proj = self.img_fc(feat)  # (batch, seq_len, emb*2)
+            proj = self.img_fc(feat)
             return proj
 
     def forward(self, x, edge_index, img_feat, video_adj_list,
@@ -1349,7 +1348,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         x_feat = self.relu(self.x_bn1(x_feat))
         x_label = self.obj_l_fc(x[:, self.input_dim:])
         x_label = self.relu(self.obj_l_bn1(x_label))
-        x = torch.cat((x_feat, x_label), 1)
+        x = torch.cat((x_feat, x_label), dim=1)
 
         # Spatial GNN
         n_embed_spatial = self.relu(self.gc1_norm1(
@@ -1361,7 +1360,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
             self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
         ))
 
-        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
+        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), dim=1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
         g_embed = global_max_pool(n_embed, batch_vec)  # (batch, emb)
 
@@ -1374,23 +1373,26 @@ class SpaceTempGoG_detr_dota(nn.Module):
             frame_encoded = frame_encoded.transpose(0, 1)
 
         # --- Cross-attention ---
-        g_q = self.g_proj(g_embed).unsqueeze(1)              # (batch, 1, emb*2)
+        # Option 1: single query per batch → pool frame sequence
+        frame_encoded_pooled = frame_encoded.mean(dim=1, keepdim=True)  # (batch, 1, emb)
+        g_q = self.g_proj(g_embed).unsqueeze(1)                         # (batch, 1, emb)
         attn_output, _ = self.cross_attn(
-            g_q, frame_encoded, frame_encoded, need_weights=False
+            g_q, frame_encoded_pooled, frame_encoded_pooled, need_weights=False
         )
-        attn_output = attn_output.squeeze(1)                 # (batch, emb*2)
+        attn_output = attn_output.squeeze(1)                             # (batch, emb*2)
 
         # --- Frame-level graph embeddings ---
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(attn_output, video_adj_list)))
 
         # --- Classification ---
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), 1)  # (batch, emb)
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), dim=1)
         frame_embed_sg = self.relu(self.classify_fc1(frame_embed_))
         logits_mc = self.classify_fc2(frame_embed_sg)
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
