@@ -1360,6 +1360,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch_geometric.nn import (
     TransformerConv,
     SAGPooling,
@@ -1430,7 +1431,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # FIX: compute concat dim correctly (sg + img embeddings)
+        # ---- FIX: determine concat dimension correctly ----
         concat_dim = (embedding_dim // 2 * self.num_heads) + (embedding_dim // 2 * self.num_heads)
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
@@ -1447,13 +1448,15 @@ class SpaceTempGoG_detr_dad(nn.Module):
         x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
         # spatial graph
+        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+            self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
         ))
 
         # temporal graph
+        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
         ))
 
         # concat + pooling
@@ -1462,10 +1465,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         g_embed = global_max_pool(n_embed, batch_vec)
 
         # process I3D features with Transformer
-        img_feat = self.img_fc(img_feat)               # (B, 256)
-        img_feat = img_feat.unsqueeze(0)               # (1, B, 256)
+        img_feat = self.img_fc(img_feat)              # (B, 256)
+        img_feat = img_feat.unsqueeze(0)              # (1, B, 256)
         img_feat = self.temporal_transformer(img_feat)  # (1, B, 256)
-        img_feat = img_feat.squeeze(0)                 # (B, 256)
+        img_feat = img_feat.squeeze(0)                # (B, 256)
 
         # frame-level embeddings
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
@@ -1480,6 +1483,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
