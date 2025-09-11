@@ -13,124 +13,124 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .attention_modules import EMSA, Memory_Attention_Aggregation, Auxiliary_Self_Attention_Aggregation
 
-class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, emsa_groups=4):
-        super(SpaceTempGoG_detr_dad, self).__init__()
+# class SpaceTempGoG_detr_dad(nn.Module):
+#     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, emsa_groups=4):
+#         super(SpaceTempGoG_detr_dad, self).__init__()
 
-        # Make embedding divisible by EMSA groups
-        assert embedding_dim * 2 % emsa_groups == 0, f"concat_dim={embedding_dim*2} must be divisible by EMSA groups={emsa_groups}"
-        self.embedding_dim = embedding_dim
-        self.emsa_groups = emsa_groups
+#         # Make embedding divisible by EMSA groups
+#         assert embedding_dim * 2 % emsa_groups == 0, f"concat_dim={embedding_dim*2} must be divisible by EMSA groups={emsa_groups}"
+#         self.embedding_dim = embedding_dim
+#         self.emsa_groups = emsa_groups
 
-        # Linear projections
-        self.obj_proj = nn.Linear(input_dim, embedding_dim)
-        self.global_proj = nn.Linear(img_feat_dim, embedding_dim)
+#         # Linear projections
+#         self.obj_proj = nn.Linear(input_dim, embedding_dim)
+#         self.global_proj = nn.Linear(img_feat_dim, embedding_dim)
 
-        concat_dim = embedding_dim * 2
+#         concat_dim = embedding_dim * 2
 
-        # Parallel attention modules
-        self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
-        self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
-        self.temporal_emsa = EMSA(channels=concat_dim, factor=emsa_groups)
+#         # Parallel attention modules
+#         self.memory_attention = Memory_Attention_Aggregation(agg_dim=concat_dim, d_model=concat_dim)
+#         self.aux_attention = Auxiliary_Self_Attention_Aggregation(agg_dim=concat_dim)
+#         self.temporal_emsa = EMSA(channels=concat_dim, factor=emsa_groups)
 
-        # Projection layers after attention outputs to unify shapes
-        self.mem_proj = nn.Linear(concat_dim, concat_dim)
-        self.aux_proj = nn.Linear(concat_dim, concat_dim)
-        self.emsa_proj = nn.Linear(concat_dim, concat_dim)
+#         # Projection layers after attention outputs to unify shapes
+#         self.mem_proj = nn.Linear(concat_dim, concat_dim)
+#         self.aux_proj = nn.Linear(concat_dim, concat_dim)
+#         self.emsa_proj = nn.Linear(concat_dim, concat_dim)
 
-        # Final classifier
-        concat_dim = 512
-        fused_dim = concat_dim * 3
-        self.classifier = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim // 2),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(fused_dim // 2, num_classes)
-        )
+#         # Final classifier
+#         concat_dim = 512
+#         fused_dim = concat_dim * 3
+#         self.classifier = nn.Sequential(
+#             nn.Linear(fused_dim, fused_dim // 2),
+#             nn.ReLU(inplace=True),
+#             nn.Dropout(0.5),
+#             nn.Linear(fused_dim // 2, num_classes)
+#         )
 
-    def forward(self, obj_feats, global_feats):
-        # Ensure tensor dtype/device matches model
-        ref = next(self.parameters())
-        obj_feats = obj_feats.to(dtype=ref.dtype, device=ref.device)
-        global_feats = global_feats.to(dtype=ref.dtype, device=ref.device)
+#     def forward(self, obj_feats, global_feats):
+#         # Ensure tensor dtype/device matches model
+#         ref = next(self.parameters())
+#         obj_feats = obj_feats.to(dtype=ref.dtype, device=ref.device)
+#         global_feats = global_feats.to(dtype=ref.dtype, device=ref.device)
 
-        # Add batch dim if missing
-        if obj_feats.dim() == 2:
-            obj_feats = obj_feats.unsqueeze(0)
-        if global_feats.dim() == 2:
-            global_feats = global_feats.unsqueeze(0)
+#         # Add batch dim if missing
+#         if obj_feats.dim() == 2:
+#             obj_feats = obj_feats.unsqueeze(0)
+#         if global_feats.dim() == 2:
+#             global_feats = global_feats.unsqueeze(0)
 
-        # Project features
-        obj_proj = self.obj_proj(obj_feats)        # [B, T_obj, embedding_dim]
-        global_proj = self.global_proj(global_feats)  # [B, T_global, embedding_dim]
+#         # Project features
+#         obj_proj = self.obj_proj(obj_feats)        # [B, T_obj, embedding_dim]
+#         global_proj = self.global_proj(global_feats)  # [B, T_global, embedding_dim]
 
-        # Align temporal dimension
-        T_max = max(obj_proj.size(1), global_proj.size(1))
-        if obj_proj.size(1) != T_max:
-            obj_proj = F.interpolate(obj_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
-        if global_proj.size(1) != T_max:
-            global_proj = F.interpolate(global_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
+#         # Align temporal dimension
+#         T_max = max(obj_proj.size(1), global_proj.size(1))
+#         if obj_proj.size(1) != T_max:
+#             obj_proj = F.interpolate(obj_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
+#         if global_proj.size(1) != T_max:
+#             global_proj = F.interpolate(global_proj.transpose(1,2), size=T_max, mode='linear', align_corners=False).transpose(1,2)
 
-        # Concatenate features
-        concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
+#         # Concatenate features
+#         concat_feats = torch.cat([obj_proj, global_proj], dim=-1)  # [B, T_max, 2*embedding_dim]
 
-        # Apply attention modules
-        mem_out = self.mem_proj(self.memory_attention(concat_feats))  # [B, T_max, concat_dim]
-        aux_out_pre = self.aux_attention(concat_feats)  # [B, T_max, ?]
+#         # Apply attention modules
+#         mem_out = self.mem_proj(self.memory_attention(concat_feats))  # [B, T_max, concat_dim]
+#         aux_out_pre = self.aux_attention(concat_feats)  # [B, T_max, ?]
 
-        # Ensure aux_attention output has correct shape
-        concat_dim = self.embedding_dim * 2
-        if aux_out_pre.size(-1) != concat_dim:
-            # Project feature dimension to concat_dim, preserving temporal dimension
-            aux_out_pre = nn.Linear(aux_out_pre.size(-1), concat_dim).to(aux_out_pre.device)(aux_out_pre)
-        aux_out = self.aux_proj(aux_out_pre)  # [B, T_max, concat_dim]
+#         # Ensure aux_attention output has correct shape
+#         concat_dim = self.embedding_dim * 2
+#         if aux_out_pre.size(-1) != concat_dim:
+#             # Project feature dimension to concat_dim, preserving temporal dimension
+#             aux_out_pre = nn.Linear(aux_out_pre.size(-1), concat_dim).to(aux_out_pre.device)(aux_out_pre)
+#         aux_out = self.aux_proj(aux_out_pre)  # [B, T_max, concat_dim]
 
-        # EMSA expects [B, C, H=1, W=T_max]
-        emsa_in = concat_feats.transpose(1,2).unsqueeze(2)  # [B, concat_dim, 1, T_max]
-        emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))  # [B, T_max, concat_dim]
+#         # EMSA expects [B, C, H=1, W=T_max]
+#         emsa_in = concat_feats.transpose(1,2).unsqueeze(2)  # [B, concat_dim, 1, T_max]
+#         emsa_out = self.emsa_proj(self.temporal_emsa(emsa_in).squeeze(2).transpose(1,2))  # [B, T_max, concat_dim]
 
-        # ==== PRINT STATEMENTS ADDED ====
-        # print(f"obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
-        # print(f"concat_feats: {concat_feats.shape}")
-        # print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
-        # ================================
+#         # ==== PRINT STATEMENTS ADDED ====
+#         # print(f"obj_proj: {obj_proj.shape}, global_proj: {global_proj.shape}")
+#         # print(f"concat_feats: {concat_feats.shape}")
+#         # print(f"mem_out: {mem_out.shape}, aux_out: {aux_out.shape}, emsa_out: {emsa_out.shape}")
+#         # ================================
 		
-        # Concatenate all attention outputs
-        # fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
-        emsa_out = emsa_out.squeeze(0)
-        # print(f"emsa_out after squeeze: {emsa_out.shape}")
-        # fused = torch.cat([mem_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
-        # Expand aux_out to [1900, 512]
-        aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
+#         # Concatenate all attention outputs
+#         # fused = torch.cat([mem_out, aux_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
+#         emsa_out = emsa_out.squeeze(0)
+#         # print(f"emsa_out after squeeze: {emsa_out.shape}")
+#         # fused = torch.cat([mem_out, emsa_out], dim=-1)  # [B, T_max, 3*concat_dim]
+#         # Expand aux_out to [1900, 512]
+#         aux_out_expanded = aux_out.expand(mem_out.size(0), -1)
 
-        # print()
-        # print(f"mem_out: {mem_out.shape}, aux_out_expanded: {aux_out_expanded.shape}, emsa_out: {emsa_out.shape}")
+#         # print()
+#         # print(f"mem_out: {mem_out.shape}, aux_out_expanded: {aux_out_expanded.shape}, emsa_out: {emsa_out.shape}")
 		
-        # Concatenate along last dimension
-        fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
-        # print(fused.shape)  # torch.Size([1900, 1536])
+#         # Concatenate along last dimension
+#         fused = torch.cat([mem_out, aux_out_expanded, emsa_out], dim=-1)
+#         # print(fused.shape)  # torch.Size([1900, 1536])
 
-        # Check if 1900 can be reshaped into 100 x 19
-        batch_size = 100
-        seq_len = 19
-        assert fused.size(0) == batch_size * seq_len, "1900 is not divisible by 100"
+#         # Check if 1900 can be reshaped into 100 x 19
+#         batch_size = 100
+#         seq_len = 19
+#         assert fused.size(0) == batch_size * seq_len, "1900 is not divisible by 100"
 
-        # Reshape
-        fused = fused.view(batch_size, seq_len, fused.size(1))  # [100, 19, 1536]
+#         # Reshape
+#         fused = fused.view(batch_size, seq_len, fused.size(1))  # [100, 19, 1536]
 
-        # # Add batch dimension
-        # fused = fused.unsqueeze(0)  # [1, 1900, 1536]
-        # print("fused shape after unsqueeze: ", fused.shape)
+#         # # Add batch dimension
+#         # fused = fused.unsqueeze(0)  # [1, 1900, 1536]
+#         # print("fused shape after unsqueeze: ", fused.shape)
 		
-        # Pool over temporal dimension
-        pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
-        # print("pooled fused shape: ", fused.shape)  
+#         # Pool over temporal dimension
+#         pooled = fused.mean(dim=1)  # [B, 3*concat_dim]
+#         # print("pooled fused shape: ", fused.shape)  
 
-        # Classifier
-        logits_mc = self.classifier(pooled)
-        probs_mc = F.softmax(logits_mc, dim=-1)
+#         # Classifier
+#         logits_mc = self.classifier(pooled)
+#         probs_mc = F.softmax(logits_mc, dim=-1)
 
-        return logits_mc, probs_mc
+#         return logits_mc, probs_mc
 
 
 
@@ -1358,8 +1358,117 @@ class SpaceTempGoG_detr_dota(nn.Module):
         return logits_mc, probs_mc
 
 
+class SpaceTempGoG_detr_dad(nn.Module):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
+        super(SpaceTempGoG_detr_dota, self).__init__()
 
+        self.num_heads = 4
+        self.input_dim = input_dim
+        self.embedding_dim = embedding_dim
 
+        # process the object graph features
+        self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)   # 2048 -> 256
+        self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
+        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)         # 300 -> 64
+        self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
+
+        # Graph Transformer for spatial graph
+        self.gc1_spatial = TransformerConv(
+            in_channels=embedding_dim * 2 + embedding_dim // 2,   # 256 + 64 = 320
+            out_channels=embedding_dim // 2,                      # 64
+            heads=self.num_heads,
+            edge_dim=1,
+            beta=True
+        )
+        self.gc1_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+
+        # Graph Transformer for temporal graph
+        self.gc1_temporal = TransformerConv(
+            in_channels=embedding_dim * 2 + embedding_dim // 2,
+            out_channels=embedding_dim // 2,
+            heads=self.num_heads,
+            edge_dim=1,
+            beta=True
+        )
+        self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+
+        # Graph pooling
+        self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
+
+        # I3D features -> Transformer
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)   # 2048 -> 256
+        encoder_layer = TransformerEncoderLayer(
+            d_model=embedding_dim * 2,
+            nhead=4,
+            batch_first=True
+        )
+        self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
+
+        # Frame-level graph encoding
+        self.gc2_sg = TransformerConv(
+            in_channels=embedding_dim * self.num_heads,  # from g_embed
+            out_channels=embedding_dim // 2,
+            heads=self.num_heads
+        )
+        self.gc2_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+
+        self.gc2_i3d = TransformerConv(
+            in_channels=embedding_dim * 2,  # from Transformer
+            out_channels=embedding_dim // 2,
+            heads=self.num_heads
+        )
+        self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+
+        # ---- FIX: determine concat dimension correctly ----
+        concat_dim = (embedding_dim // 2 * self.num_heads) + (embedding_dim // 2 * self.num_heads)
+        self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
+        self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
+
+        self.relu = nn.LeakyReLU(0.2)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
+                temporal_adj_list, temporal_edge_w, batch_vec):
+
+        # process object graph features
+        x_feat = self.relu(self.x_bn1(self.x_fc(x[:, :self.input_dim])))
+        x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
+        x = torch.cat((x_feat, x_label), 1)  # (N, 320)
+
+        # spatial graph
+        n_embed_spatial = self.relu(self.gc1_norm1(
+            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+        ))
+
+        # temporal graph
+        n_embed_temporal = self.relu(self.gc1_norm2(
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+        ))
+
+        # concat + pooling
+        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
+        n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
+        g_embed = global_max_pool(n_embed, batch_vec)
+
+        # process I3D features with Transformer
+        img_feat = self.img_fc(img_feat)              # (B, 256)
+        img_feat = img_feat.unsqueeze(0)              # (1, B, 256)
+        img_feat = self.temporal_transformer(img_feat)  # (1, B, 256)
+        img_feat = img_feat.squeeze(0)                # (B, 256)
+
+        # frame-level embeddings
+        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list)))
+
+        # concat
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), 1)
+
+        # classification
+        frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
+        logits_mc = self.classify_fc2(frame_embed_)
+        probs_mc = self.softmax(logits_mc)
+
+        return logits_mc, probs_mc
 
 
 
