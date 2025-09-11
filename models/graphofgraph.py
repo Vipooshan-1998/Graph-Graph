@@ -1360,7 +1360,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
 
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
-        super(SpaceTempGoG_detr_dota, self).__init__()
+        super(SpaceTempGoG_detr_dad, self).__init__()
 
         self.num_heads = 4
         self.input_dim = input_dim
