@@ -1490,10 +1490,17 @@ import torch.nn.functional as F
 from torch_geometric.nn import TransformerConv, InstanceNorm, global_mean_pool
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, embedding_dim=128, num_heads=4, dropout=0.1):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048,
+                 num_classes=2, num_heads=4, dropout=0.1):
         super(SpaceTempGoG_detr_dad, self).__init__()
+
+        self.input_dim = input_dim
         self.embedding_dim = embedding_dim
         self.num_heads = num_heads
+
+        # --- Linear layers to embed raw features ---
+        self.x_fc = nn.Linear(input_dim, embedding_dim)
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim)
 
         # --- Temporal Graph Conv ---
         self.gc1_temporal = TransformerConv(
@@ -1515,7 +1522,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # --- Frame-level Graph Encoding (fixed dims) ---
         self.gc2_sg = TransformerConv(
-            in_channels=embedding_dim * 2,   # g_embed is 256
+            in_channels=embedding_dim * 2,   # g_embed (256)
             out_channels=embedding_dim // 2,
             heads=num_heads,
             dropout=dropout
@@ -1523,14 +1530,14 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.gc2_norm1 = InstanceNorm((embedding_dim // 2) * num_heads)
 
         self.gc2_i3d = TransformerConv(
-            in_channels=embedding_dim * 2,   # img_feat is 256
+            in_channels=embedding_dim * 2,   # img_feat (256)
             out_channels=embedding_dim // 2,
             heads=num_heads,
             dropout=dropout
         )
         self.gc2_norm2 = InstanceNorm((embedding_dim // 2) * num_heads)
 
-        # --- Cross-Attention Between Graph & Scene Features ---
+        # --- Cross-Attention ---
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=embedding_dim * 2,   # 256
             num_heads=num_heads,
@@ -1540,7 +1547,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
         # --- Classification ---
         self.classify_fc1 = nn.Linear(embedding_dim * 4, 512)  # 256+256 = 512
-        self.classify_fc2 = nn.Linear(512, 2)
+        self.classify_fc2 = nn.Linear(512, num_classes)
 
         # --- Activations/Dropout ---
         self.relu = nn.ReLU()
@@ -1549,6 +1556,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
     def forward(self, x, edge_index, img_feat, video_adj_list,
                 edge_embeddings, temporal_adj_list, temporal_edge_w, batch_vec):
 
+        # --- Project inputs ---
+        x = self.relu(self.x_fc(x))
+        img_feat = self.relu(self.img_fc(img_feat))
+
         # --- Temporal Graph ---
         x_temp = self.gc1_temporal(x, temporal_adj_list,
                                    edge_attr=temporal_edge_w.unsqueeze(1))
@@ -1556,26 +1567,26 @@ class SpaceTempGoG_detr_dad(nn.Module):
         x_temp = self.relu(x_temp)
         x_temp = self.dropout(x_temp)
 
-        # --- Scene Graph (object-level) ---
+        # --- Scene Graph ---
         x_sg = self.gc1_sg(x, edge_index, edge_attr=edge_embeddings)
         x_sg = self.gc1_sg_norm(x_sg)
         x_sg = self.relu(x_sg)
         x_sg = self.dropout(x_sg)
 
         # --- Pooling ---
-        g_embed = global_mean_pool(x_sg, batch_vec)   # (B, 256)
-        img_embed = global_mean_pool(img_feat, batch_vec)  # (B, 256)
+        g_embed = global_mean_pool(x_sg, batch_vec)      # (B,256)
+        img_embed = global_mean_pool(img_feat, batch_vec)  # (B,256)
 
-        # --- Cross-Attention Fusion ---
-        g_embed_unsq = g_embed.unsqueeze(1)   # (B,1,256)
-        img_embed_unsq = img_embed.unsqueeze(1)  # (B,1,256)
+        # --- Cross-Attention ---
+        g_embed_unsq = g_embed.unsqueeze(1)     # (B,1,256)
+        img_embed_unsq = img_embed.unsqueeze(1) # (B,1,256)
         attn_output, _ = self.cross_attn(
             query=g_embed_unsq,
             key=img_embed_unsq,
             value=img_embed_unsq
         )
         g_embed = g_embed_unsq + attn_output
-        g_embed = g_embed.squeeze(1)  # (B,256)
+        g_embed = g_embed.squeeze(1)            # (B,256)
 
         # --- Frame-level Graph Encoding ---
         g_embed = self.gc2_sg(g_embed, video_adj_list)
@@ -1596,6 +1607,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs = F.softmax(logits, dim=-1)
 
         return logits, probs
+
 
 
 
