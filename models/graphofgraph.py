@@ -1234,11 +1234,10 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 #         return logits_mc, probs_mc
 
 # filename: space_temp_gog_detr_dota_transformer.py
-# import torch
 import torch
 import torch.nn as nn
 from torch_geometric.nn import (
-    GPSConv,
+    TransformerConv,
     SAGPooling,
     global_max_pool,
     InstanceNorm
@@ -1246,12 +1245,12 @@ from torch_geometric.nn import (
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, LeakyReLU, Softmax
 
 class SpaceTempGoG_detr_dota(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, num_heads=4):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, heads=4):
         super(SpaceTempGoG_detr_dota, self).__init__()
 
-        self.num_heads = num_heads
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
+        self.heads = heads
 
         # --- Object graph feature projection ---
         self.x_fc = nn.Linear(input_dim, embedding_dim * 2)
@@ -1259,16 +1258,16 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
-        # --- GPSConv for object-level spatial graph ---
-        self.gc1_spatial = GPSConv(
+        # --- TransformerConv for object-level spatial graph ---
+        self.gc1_spatial = TransformerConv(
             in_channels=embedding_dim * 2 + embedding_dim // 2,
             out_channels=embedding_dim // 2,
             heads=1
         )
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
-        # --- GPSConv for temporal object graph ---
-        self.gc1_temporal = GPSConv(
+        # --- TransformerConv for temporal object graph ---
+        self.gc1_temporal = TransformerConv(
             in_channels=embedding_dim * 2 + embedding_dim // 2,
             out_channels=embedding_dim // 2,
             heads=1
@@ -1284,18 +1283,18 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # --- Temporal transformer for frame sequence ---
         encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
-            nhead=num_heads,
+            nhead=heads,
             batch_first=True
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
         # --- Second-level graph convs ---
-        self.gc2_sg = GPSConv(embedding_dim, embedding_dim // 2, heads=1)
+        self.gc2_sg = TransformerConv(embedding_dim, embedding_dim // 2, heads=1)
         self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
-        self.gc2_i3d = GPSConv(embedding_dim * 2, embedding_dim // 2, heads=1)
+        self.gc2_i3d = TransformerConv(embedding_dim * 2, embedding_dim // 2, heads=1)
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
-        # Projection for cross-attention / contrastive
+        # Projection for contrastive learning
         self.g_proj = nn.Linear(embedding_dim, embedding_dim * 2)
 
         # --- Classifier ---
@@ -1324,10 +1323,10 @@ class SpaceTempGoG_detr_dota(nn.Module):
         x = torch.cat((x_feat, x_label), dim=1)
 
         n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+            self.gc1_spatial(x, edge_index)
         ))
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+            self.gc1_temporal(x, temporal_adj_list)
         ))
 
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), dim=1)
@@ -1351,10 +1350,11 @@ class SpaceTempGoG_detr_dota(nn.Module):
         if return_contrastive:
             # Project embeddings for contrastive learning
             obj_embed = self.contrastive_proj(g_embed)
-            frame_proj = self.contrastive_proj(frame_encoded.mean(dim=0))  # mean over frames
+            frame_proj = self.contrastive_proj(frame_encoded.mean(dim=0))
             return logits_mc, probs_mc, obj_embed, frame_proj
 
         return logits_mc, probs_mc
+
 
 
 
