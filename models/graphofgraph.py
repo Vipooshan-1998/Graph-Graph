@@ -1236,204 +1236,157 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 # filename: space_temp_gog_detr_dota_transformer.py
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch_geometric.nn import (
     GATv2Conv,
-    TransformerConv,
     SAGPooling,
     global_max_pool,
     InstanceNorm
 )
 
-# Optional: ViT backbone if you want timm integration
-try:
-    import timm
-    TIMM_AVAILABLE = True
-except Exception:
-    TIMM_AVAILABLE = False
-
 
 class SpaceTempGoG_detr_dota(nn.Module):
-    """
-    Accident anticipation model with:
-      - Graph TransformerConv for object graphs (spatial + temporal)
-      - Temporal TransformerEncoder for frame/I3D features
-      - Cross-attention fusion between graph embeddings and frame embeddings
-      - SAGPooling and classification head
-    """
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2,
+                 use_vit_backbone=False, num_heads=4, dropout=0.1, transformer_layers=2):
+        super(SpaceTempGoG_detr_dota, self).__init__()
 
-    def __init__(
-        self,
-        input_dim=2048,
-        label_dim=300,
-        embedding_dim=128,
-        img_feat_dim=2048,
-        num_classes=2,
-        num_heads=4,
-        transformer_layers=2,
-        dropout=0.2,
-        use_vit_backbone=False,
-        vit_model_name="vit_base_patch16_224"
-    ):
-        super().__init__()
-
-        self.input_dim = input_dim
-        self.label_dim = label_dim
-        self.embedding_dim = embedding_dim
-        self.img_feat_dim = img_feat_dim
         self.num_heads = num_heads
+        self.input_dim = input_dim
+        self.embedding_dim = embedding_dim
+        self.use_vit_backbone = use_vit_backbone
         self.dropout = dropout
-        self.use_vit_backbone = use_vit_backbone and TIMM_AVAILABLE
 
-        # -------------------------
-        # Object feature processing
-        # -------------------------
+        # process the object graph features
         self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)
         self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
-        self.obj_l_fc = nn.Linear(self.label_dim, embedding_dim // 2)
+        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
-        g_in_dim = embedding_dim * 2 + embedding_dim // 2
-        self.gc1_spatial = TransformerConv(g_in_dim, embedding_dim // 2, heads=1, concat=False)
+        # Spatial GNN
+        self.gc1_spatial = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2,
+            embedding_dim // 2,
+            heads=1,
+            edge_dim=1
+        )
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
-        self.gc1_temporal = TransformerConv(g_in_dim, embedding_dim // 2, heads=1, concat=False)
+        # Temporal GNN
+        self.gc1_temporal = GATv2Conv(
+            embedding_dim * 2 + embedding_dim // 2,
+            embedding_dim // 2,
+            heads=1,
+            edge_dim=1
+        )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)
 
+        # Pooling
         self.pool = SAGPooling(embedding_dim, ratio=0.8)
 
-        # -------------------------
-        # Image / Frame features
-        # -------------------------
-        if self.use_vit_backbone:
-            vit = timm.create_model(vit_model_name, pretrained=True, num_classes=0, global_pool="avg")
-            self.vit_backbone = vit
-            vit_feat_dim = getattr(vit, "num_features", None) or embedding_dim * 2
-            self.vit_proj = nn.Linear(vit_feat_dim, embedding_dim * 2)
-        else:
-            self.img_fc = nn.Linear(self.img_feat_dim, embedding_dim * 2)
+        # Project image/I3D features
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
 
-        # -------------------------
-        # Temporal Transformer
-        # -------------------------
-        self.positional_enc = nn.Parameter(torch.randn(512, embedding_dim * 2) * 0.01)
-
+        # Transformer for temporal encoding of frame features
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=self.num_heads,
             dim_feedforward=embedding_dim * 4,
             dropout=self.dropout,
             activation="gelu",
-            batch_first=True
+            batch_first=True   # ✅ ensures (batch, seq, feat)
         )
-        self.temporal_transformer = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
+        self.temporal_transformer = nn.TransformerEncoder(
+            encoder_layer, num_layers=transformer_layers
+        )
 
-        # -------------------------
-        # Cross-attention fusion
-        # -------------------------
+        # Cross-attention: query from graph, key/value from frame features
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=embedding_dim * 2,
+            num_heads=self.num_heads,
+            dropout=self.dropout,
+            batch_first=True   # ✅ ensures input/output are (batch, seq, feat)
+        )
+
+        # Second-level graph convs
+        self.gc2_sg = GATv2Conv(embedding_dim, embedding_dim // 2, heads=1)
+        self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
+
+        self.gc2_i3d = GATv2Conv(embedding_dim * 2, embedding_dim // 2, heads=1)
+        self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
+
+        # Projection for g_embed → match attention dim
         self.g_proj = nn.Linear(embedding_dim, embedding_dim * 2)
-        self.cross_attn = nn.MultiheadAttention(embed_dim=embedding_dim * 2, num_heads=self.num_heads, batch_first=True)
-        self.cross_attn_norm = nn.LayerNorm(embedding_dim * 2)
 
-        # -------------------------
         # Classifier
-        # -------------------------
-        # g_embed: emb
-        # fused: emb*2
-        # frame_pooled: emb*2
-        classifier_in_dim = embedding_dim * 5
-
-        self.classify_fc1 = nn.Linear(classifier_in_dim, embedding_dim // 2)
-        self.classify_dropout = nn.Dropout(self.dropout)
-        self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
+        self.classify_fc1 = nn.Linear(embedding_dim * 2, embedding_dim)
+        self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    # -------------------------
-    # Helpers
-    # -------------------------
     def _project_img_feats(self, img_feat):
         """
         Normalize img_feat to shape (batch, seq_len, emb*2).
         """
         if self.use_vit_backbone:
-            raise RuntimeError("ViT backbone requires raw images. Set use_vit_backbone=False if using precomputed features.")
-
-        # Case 1: (num_frames, feat) → (1, num_frames, feat)
-        if img_feat.dim() == 2:
-            feat = img_feat.unsqueeze(0)
-        # Case 2: already (batch, seq_len, feat)
-        elif img_feat.dim() == 3:
-            feat = img_feat
+            raise RuntimeError("ViT backbone requires raw image tensors.")
         else:
-            raise ValueError(f"Unexpected img_feat shape: {img_feat.shape}")
+            if img_feat.dim() == 2:
+                # (N, feat) → (1, N, feat)
+                feat = img_feat.unsqueeze(0)
+            elif img_feat.dim() == 3:
+                # (batch, seq, feat)
+                feat = img_feat
+            else:
+                raise ValueError(f"Unexpected img_feat shape: {img_feat.shape}")
 
-        proj = self.img_fc(feat)  # (batch, seq_len, emb*2)
-        return proj
+            proj = self.img_fc(feat)  # (batch, seq_len, emb*2)
+            return proj
 
-    # -------------------------
-    # Forward
-    # -------------------------
-    def forward(
-        self,
-        x,
-        edge_index,
-        img_feat,
-        video_adj_list=None,
-        edge_embeddings=None,
-        temporal_adj_list=None,
-        temporal_edge_w=None,
-        batch_vec=None
-    ):
-        # -------------------------
-        # Object feature processing
-        # -------------------------
+    def forward(self, x, edge_index, img_feat, video_adj_list,
+                edge_embeddings, temporal_adj_list, temporal_edge_w, batch_vec):
+
+        # --- Object graph features ---
         x_feat = self.x_fc(x[:, :self.input_dim])
         x_feat = self.relu(self.x_bn1(x_feat))
-        x_label = self.obj_l_fc(x[:, self.input_dim:self.input_dim + self.label_dim])
+        x_label = self.obj_l_fc(x[:, self.input_dim:])
         x_label = self.relu(self.obj_l_bn1(x_label))
-        x_proc = torch.cat((x_feat, x_label), dim=1)
+        x = torch.cat((x_feat, x_label), 1)
 
-        n_embed_spatial = self.gc1_spatial(x_proc, edge_index)
-        n_embed_spatial = self.relu(self.gc1_norm1(n_embed_spatial))
+        # Spatial GNN
+        n_embed_spatial = self.relu(self.gc1_norm1(
+            self.gc1_spatial(x, edge_index, edge_attr=edge_embeddings[:, -1].unsqueeze(1))
+        ))
 
-        n_embed_temporal = self.gc1_temporal(x_proc, temporal_adj_list if temporal_adj_list is not None else edge_index)
-        n_embed_temporal = self.relu(self.gc1_norm2(n_embed_temporal))
+        # Temporal GNN
+        n_embed_temporal = self.relu(self.gc1_norm2(
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_edge_w.unsqueeze(1))
+        ))
 
-        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), dim=1)
-        n_embed, edge_index_p, _, batch_vec_p, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
-        g_embed = global_max_pool(n_embed, batch_vec_p)
+        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
+        n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
+        g_embed = global_max_pool(n_embed, batch_vec)  # (batch, emb)
 
-        # -------------------------
-        # Frame / Image temporal modeling
-        # -------------------------
-        frame_feats = self._project_img_feats(img_feat)  # (batch, seq_len, emb*2)
-        batch_size, seq_len, feat_dim = frame_feats.shape
+        # --- Frame features ---
+        frame_feats = self._project_img_feats(img_feat)      # (batch, seq, emb*2)
+        frame_encoded = self.temporal_transformer(frame_feats)  # (batch, seq, emb*2)
 
-        pe = self.positional_enc[:seq_len, :].unsqueeze(0).expand(batch_size, -1, -1)
-        frame_feats = frame_feats + pe
+        # Cross-attention: graph query attends to frame sequence
+        g_q = self.g_proj(g_embed).unsqueeze(1)              # (batch, 1, emb*2)
+        attn_output, _ = self.cross_attn(
+            g_q, frame_encoded, frame_encoded, need_weights=False
+        )
+        attn_output = attn_output.squeeze(1)                 # (batch, emb*2)
 
-        frame_encoded = self.temporal_transformer(frame_feats)
-        frame_pooled = frame_encoded.mean(dim=1)  # (batch, emb*2)
+        # --- Frame-level graph embeddings ---
+        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(attn_output, video_adj_list)))
 
-        # -------------------------
-        # Cross-attention fusion
-        # -------------------------
-        g_q = self.g_proj(g_embed).unsqueeze(1)
-        attn_output, _ = self.cross_attn(g_q, frame_encoded, frame_encoded, need_weights=False)
-        attn_output = attn_output.squeeze(1)
-        fused = self.cross_attn_norm(attn_output + g_q.squeeze(1))
+        # --- Classification ---
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), 1)  # (batch, emb)
+        frame_embed_sg = self.relu(self.classify_fc1(frame_embed_))
+        logits_mc = self.classify_fc2(frame_embed_sg)
+        probs_mc = self.softmax(logits_mc)
 
-        # -------------------------
-        # Classifier
-        # -------------------------
-        final_feat = torch.cat([g_embed, fused, frame_pooled], dim=1)
-        out = self.classify_fc1(final_feat)
-        out = F.relu(out)
-        out = self.classify_dropout(out)
-        logits = self.classify_fc2(out)
-        probs = self.softmax(logits)
+        return logits_mc, probs_mc
 
-        return logits, probs
 
