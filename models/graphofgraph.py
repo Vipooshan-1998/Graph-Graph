@@ -1235,14 +1235,15 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 
 # filename: space_temp_gog_detr_dota_transformer.py
 # import torch
+import torch
 import torch.nn as nn
 from torch_geometric.nn import (
-    GraphTransformerConv,
+    GPSConv,
     SAGPooling,
     global_max_pool,
     InstanceNorm
 )
-from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention, Linear, Softmax, LeakyReLU
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, LeakyReLU, Softmax
 
 class SpaceTempGoG_detr_dota(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, num_heads=4):
@@ -1258,21 +1259,19 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
-        # --- Graph Transformer for object-level spatial graph ---
-        self.gc1_spatial = GraphTransformerConv(
+        # --- GPSConv for object-level spatial graph ---
+        self.gc1_spatial = GPSConv(
             in_channels=embedding_dim * 2 + embedding_dim // 2,
             out_channels=embedding_dim // 2,
-            heads=1,
-            edge_dim=1
+            heads=1
         )
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
-        # --- Graph Transformer for temporal object graph ---
-        self.gc1_temporal = GraphTransformerConv(
+        # --- GPSConv for temporal object graph ---
+        self.gc1_temporal = GPSConv(
             in_channels=embedding_dim * 2 + embedding_dim // 2,
             out_channels=embedding_dim // 2,
-            heads=1,
-            edge_dim=1
+            heads=1
         )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)
 
@@ -1291,9 +1290,9 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
         # --- Second-level graph convs ---
-        self.gc2_sg = GraphTransformerConv(embedding_dim, embedding_dim // 2, heads=1)
+        self.gc2_sg = GPSConv(embedding_dim, embedding_dim // 2, heads=1)
         self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
-        self.gc2_i3d = GraphTransformerConv(embedding_dim * 2, embedding_dim // 2, heads=1)
+        self.gc2_i3d = GPSConv(embedding_dim * 2, embedding_dim // 2, heads=1)
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
         # Projection for cross-attention / contrastive
@@ -1343,7 +1342,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # --- Frame-level graph embeddings ---
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(frame_encoded, video_adj_list)))
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), 1)
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), dim=1)
 
         frame_embed_sg = self.relu(self.classify_fc1(frame_embed_))
         logits_mc = self.classify_fc2(frame_embed_sg)
@@ -1356,6 +1355,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
             return logits_mc, probs_mc, obj_embed, frame_proj
 
         return logits_mc, probs_mc
+
 
 
 
