@@ -1487,30 +1487,25 @@ class SpaceTempGoG_detr_dota(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import (
-    TransformerConv,
-    SAGPooling,
-    global_max_pool,
-    InstanceNorm
-)
+from torch_geometric.nn import TransformerConv, SAGPooling, global_max_pool, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, num_heads=4):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
-        self.num_heads = num_heads
+        self.num_heads = 4
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
 
-        # --- Node feature projections ---
+        # process the object graph features
         self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)   # 2048 -> 256
         self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
         self.obj_l_fc = nn.Linear(300, embedding_dim // 2)         # 300 -> 64
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
-        # --- Graph Transformer for spatial graph ---
+        # Graph Transformer for spatial graph
         self.gc1_spatial = TransformerConv(
             in_channels=embedding_dim * 2 + embedding_dim // 2,   # 256 + 64 = 320
             out_channels=embedding_dim // 2,                      # 64
@@ -1520,7 +1515,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # --- Graph Transformer for temporal graph ---
+        # Graph Transformer for temporal graph
         self.gc1_temporal = TransformerConv(
             in_channels=embedding_dim * 2 + embedding_dim // 2,
             out_channels=embedding_dim // 2,
@@ -1530,10 +1525,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # --- Pooling ---
+        # Graph pooling
         self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
 
-        # --- Image/I3D projection + temporal transformer ---
+        # I3D features -> Transformer
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)   # 2048 -> 256
         encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
@@ -1542,97 +1537,85 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
-        # --- Frame-level graph encoding (downstream convs) ---
+        # Frame-level graph encoding
         self.gc2_sg = TransformerConv(
-            in_channels=embedding_dim * self.num_heads,  # from g_embed dim
+            in_channels=embedding_dim * self.num_heads,  # from g_embed
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
         self.gc2_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         self.gc2_i3d = TransformerConv(
-            in_channels=embedding_dim * 2,  # from Transformer (256)
+            in_channels=embedding_dim * 2,  # from Transformer
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # ---- Classifier (concat of sg + img embeddings) ----
-        concat_dim = (embedding_dim // 2 * self.num_heads) + (embedding_dim // 2 * self.num_heads)  # e.g., 256+256=512
+        # Cross-Attention between object-graph and scene features
+        self.cross_attn = MultiheadAttention(
+            embed_dim=embedding_dim * 2,
+            num_heads=4,
+            batch_first=True
+        )
+
+        # ---- FIX: determine concat dimension correctly ----
+        concat_dim = (embedding_dim // 2 * self.num_heads) + (embedding_dim // 2 * self.num_heads)
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
-        # --- NEW: Cross-attention between graph and frame embeddings ---
-        self.attn_dim = embedding_dim * self.num_heads  # e.g., 128 * 4 = 512
-        self.g_proj_attn = nn.Linear(embedding_dim * self.num_heads, self.attn_dim)
-        self.frame_proj_attn = nn.Linear(embedding_dim * 2, self.attn_dim)  # project 256 -> 512
-        self.cross_attn = MultiheadAttention(embed_dim=self.attn_dim, num_heads=self.num_heads, batch_first=True)
-        self.attn_out_proj = nn.Linear(self.attn_dim, (embedding_dim // 2) * self.num_heads)
-
-        # --- Activations ---
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
                 temporal_adj_list, temporal_edge_w, batch_vec):
-        """
-        x: (N_nodes, input_dim + label_dim)
-        edge_embeddings: (E, some_dim) where we take last scalar as before
-        temporal_edge_w: (E_temporal,) or (E_temporal, 1)
-        img_feat: (B, img_feat_dim)
-        """
 
-        # --- Node feature processing ---
+        # process object graph features
         x_feat = self.relu(self.x_bn1(self.x_fc(x[:, :self.input_dim])))
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
-        x = torch.cat((x_feat, x_label), dim=1)  # (N, 320)
+        x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
-        # --- Spatial graph conv ---
-        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1)  # scalar
+        # ---- Spatial graph ----
+        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_spatial = self.relu(self.gc1_norm1(
             self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
         ))
 
-        # --- Temporal graph conv ---
-        temporal_scalar = temporal_edge_w.unsqueeze(1)  # (E_temporal,1)
+        # ---- Temporal graph ----
+        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=temporal_scalar)
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
         ))
 
-        # --- concat + pooling ---
-        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), dim=1)
+        # concat + pooling
+        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
-        g_embed = global_max_pool(n_embed, batch_vec)  # (batch, embedding_dim * num_heads)
+        g_embed = global_max_pool(n_embed, batch_vec)   # (B, 256)
 
-        # --- Frame features ---
-        frame_feats = self.img_fc(img_feat)  # (B, 256)
-        frame_feats_t = frame_feats.unsqueeze(0)      # (1, B, 256)
-        frame_encoded_t = self.temporal_transformer(frame_feats_t)
-        if frame_encoded_t.shape[0] != frame_feats_t.shape[0]:
-            frame_encoded_t = frame_encoded_t.transpose(0, 1)
-        frame_encoded = frame_encoded_t.squeeze(0)    # (B, 256)
+        # ---- Process I3D features with Transformer ----
+        img_feat = self.img_fc(img_feat)              # (B, 256)
+        img_feat = img_feat.unsqueeze(0)              # (1, B, 256)
+        img_feat = self.temporal_transformer(img_feat)  # (1, B, 256)
+        img_feat = img_feat.squeeze(0)                # (B, 256)
 
-        # --- Cross-attention (graph ↔ frame) ---
-        g_for_attn = self.g_proj_attn(g_embed)              # (B, 512)
-        frame_for_attn = self.frame_proj_attn(frame_encoded)  # (B, 512)
+        # ---- Frame-level embeddings ----
+        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list)))
 
-        g_q = g_for_attn.unsqueeze(1)       # (B, 1, 512)
-        frame_kv = frame_for_attn.unsqueeze(1)  # (B, 1, 512)
+        # ---- Cross-Attention Fusion ----
+        g_embed_seq = g_embed.unsqueeze(1)     # (B, 1, 256)
+        img_feat_seq = img_feat.unsqueeze(1)   # (B, 1, 256)
 
-        attn_output, _ = self.cross_attn(g_q, frame_kv, frame_kv, need_weights=False)
-        attn_output = attn_output.squeeze(1)         # (B, 512)
+        attn_to_img, _ = self.cross_attn(query=img_feat_seq, key=g_embed_seq, value=g_embed_seq)
+        attn_to_img = attn_to_img.squeeze(1)
 
-        attn_to_img = self.attn_out_proj(attn_output)  # (B, 256)
+        # FIX: dtype alignment for AMP
+        attn_to_img = attn_to_img.to(frame_embed_img.dtype)
 
-        # --- Frame-level graph embeddings ---
-        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))   # (B, 256)
-        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(frame_encoded, video_adj_list)))  # (B, 256)
+        frame_embed_img = frame_embed_img + attn_to_img  # residual fusion
 
-        # Fuse attention info into frame_embed_img
-        frame_embed_img = frame_embed_img + attn_to_img
-
-        # --- Concatenate and classify ---
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), dim=1)  # (B, 512)
+        # ---- Concat and classify ----
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img), 1)
         frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
         logits_mc = self.classify_fc2(frame_embed_)
         probs_mc = self.softmax(logits_mc)
