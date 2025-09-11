@@ -1237,46 +1237,42 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# PyG imports
 from torch_geometric.nn import (
     GATv2Conv,
     TransformerConv,
     SAGPooling,
     global_max_pool,
-    global_mean_pool,
     InstanceNorm
 )
 
-# Optional: tries to use timm ViT for per-frame features (if installed).
+# Optional: ViT backbone if you want timm integration
 try:
     import timm
     TIMM_AVAILABLE = True
 except Exception:
     TIMM_AVAILABLE = False
 
+
 class SpaceTempGoG_detr_dota(nn.Module):
     """
-    Upgraded architecture with:
-      - Graph TransformerConv for object graph encoding
-      - Spatial + Temporal object GNN branches
-      - Temporal TransformerEncoder for image/I3D sequence modeling
-      - Optional ViT/timm frame encoder (if timm available)
+    Accident anticipation model with:
+      - Graph TransformerConv for object graphs (spatial + temporal)
+      - Temporal TransformerEncoder for frame/I3D features
       - Cross-attention fusion between graph embeddings and frame embeddings
-      - SAGPooling + global pooling and classification head
+      - SAGPooling and classification head
     """
 
     def __init__(
         self,
-        input_dim=2048,           # object visual descriptor dim
-        label_dim=300,            # object label/one-hot or embedding dim (as in your code)
-        embedding_dim=128,        # base embedding
-        img_feat_dim=2048,        # input video frame / I3D dim
+        input_dim=2048,
+        label_dim=300,
+        embedding_dim=128,
+        img_feat_dim=2048,
         num_classes=2,
         num_heads=4,
         transformer_layers=2,
         dropout=0.2,
-        use_vit_backbone=False,   # set True to attempt using timm ViT
+        use_vit_backbone=False,
         vit_model_name="vit_base_patch16_224"
     ):
         super().__init__()
@@ -1297,40 +1293,30 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.obj_l_fc = nn.Linear(self.label_dim, embedding_dim // 2)
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
-        # Graph transformer convs (spatial & temporal branches)
-        # Using TransformerConv gives attention-like message passing
         g_in_dim = embedding_dim * 2 + embedding_dim // 2
-        self.gc1_spatial = TransformerConv(in_channels=g_in_dim, out_channels=embedding_dim // 2, heads=1, concat=False)
+        self.gc1_spatial = TransformerConv(g_in_dim, embedding_dim // 2, heads=1, concat=False)
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
-        self.gc1_temporal = TransformerConv(in_channels=g_in_dim, out_channels=embedding_dim // 2, heads=1, concat=False)
+        self.gc1_temporal = TransformerConv(g_in_dim, embedding_dim // 2, heads=1, concat=False)
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2)
 
-        # Pooling
         self.pool = SAGPooling(embedding_dim, ratio=0.8)
 
         # -------------------------
         # Image / Frame features
         # -------------------------
-        # Optional ViT backbone (per-frame) to replace/augment I3D features
         if self.use_vit_backbone:
-            # create a timm model that outputs feature vectors
-            # timm model creation wrapped in try/except above
             vit = timm.create_model(vit_model_name, pretrained=True, num_classes=0, global_pool="avg")
             self.vit_backbone = vit
-            # timm vit outputs embedding dimension; map to embedding_dim*2
-            # Many ViT base models use 768 or 1024. We'll detect feature dim dynamically later.
             vit_feat_dim = getattr(vit, "num_features", None) or embedding_dim * 2
             self.vit_proj = nn.Linear(vit_feat_dim, embedding_dim * 2)
         else:
-            # simple linear projection from provided img_feat_dim
             self.img_fc = nn.Linear(self.img_feat_dim, embedding_dim * 2)
 
         # -------------------------
-        # Temporal Transformer for image sequence
+        # Temporal Transformer
         # -------------------------
-        # Positional encoding (learned)
-        self.positional_enc = nn.Parameter(torch.randn(512, embedding_dim * 2) * 0.01)  # up to 512 frames (adjust if needed)
+        self.positional_enc = nn.Parameter(torch.randn(512, embedding_dim * 2) * 0.01)
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=embedding_dim * 2,
@@ -1343,87 +1329,63 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.temporal_transformer = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
 
         # -------------------------
-        # Fusion: graph-level -> transformer / cross attention
+        # Cross-attention fusion
         # -------------------------
-        # Project pooled graph embedding to same dim as frame embed
-        self.g_proj = nn.Linear(embedding_dim, embedding_dim * 2)  # g_embed -> cross-attn query
-
-        # Cross-attention: query from graph, key/value from frame sequence
-        # Using MultiheadAttention with batch_first=True
+        self.g_proj = nn.Linear(embedding_dim, embedding_dim * 2)
         self.cross_attn = nn.MultiheadAttention(embed_dim=embedding_dim * 2, num_heads=self.num_heads, batch_first=True)
         self.cross_attn_norm = nn.LayerNorm(embedding_dim * 2)
-
-        # A second GNN layer to refine after fusion (optional)
-        self.gc2_sg = GATv2Conv(embedding_dim, embedding_dim // 2, heads=1)
-        self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
-
-        self.gc2_i3d = GATv2Conv(embedding_dim * 2, embedding_dim // 2, heads=1)
-        self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
         # -------------------------
         # Classifier
         # -------------------------
-        self.classify_fc1 = nn.Linear(embedding_dim * 3, embedding_dim // 2)
+        # g_embed: emb
+        # fused: emb*2
+        # frame_pooled: emb*2
+        classifier_in_dim = embedding_dim * 5
+
+        self.classify_fc1 = nn.Linear(classifier_in_dim, embedding_dim // 2)
         self.classify_dropout = nn.Dropout(self.dropout)
         self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
 
-        # Activation
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    # -------------
+    # -------------------------
     # Helpers
-    # -------------
+    # -------------------------
     def _project_img_feats(self, img_feat):
         """
-        Accepts:
-          - img_feat: either
-             * (num_frames, feature_dim) or
-             * (batch, num_frames, feature_dim) or
-             * (num_nodes, feature_dim)
-        Returns:
-          - frame_feats: (batch, seq_len, embedding_dim*2)
+        Normalize img_feat to shape (batch, seq_len, emb*2).
         """
         if self.use_vit_backbone:
-            # Expecting img_feat to be a batch of PIL/tensor images or precomputed patches depending on usage.
-            # Here we assume user will pass preprocessed images through vit externally if desired.
-            # If img_feat is already tensor features, arch can be adapted.
-            raise RuntimeError("vit_backbone usage requires you to feed raw image tensors through the model pipeline. "
-                               "Switch use_vit_backbone=False to use precomputed img_feat tensors.")
+            raise RuntimeError("ViT backbone requires raw images. Set use_vit_backbone=False if using precomputed features.")
+
+        # Case 1: (num_frames, feat) → (1, num_frames, feat)
+        if img_feat.dim() == 2:
+            feat = img_feat.unsqueeze(0)
+        # Case 2: already (batch, seq_len, feat)
+        elif img_feat.dim() == 3:
+            feat = img_feat
         else:
-            # If img_feat is 2D (N_nodes, feat) -> treat as single-frame batch of size 1
-            if img_feat.dim() == 2:
-                # shape: (N_nodes, feat) -> convert to (1, 1, feat)
-                feat = img_feat.unsqueeze(0).unsqueeze(0)
-            elif img_feat.dim() == 3:
-                # very common: (batch, seq_len, feat) or (seq_len, N_nodes, feat)
-                # We'll assume (batch, seq_len, feat) if batch > 1 or seq_len reasonable
-                # If shape is (seq_len, N_nodes, feat) but seq_len small, this may need adaptation.
-                feat = img_feat
-            else:
-                raise ValueError("Unexpected img_feat dim: {}. Expect 2 or 3 dims.".format(img_feat.dim()))
+            raise ValueError(f"Unexpected img_feat shape: {img_feat.shape}")
 
-            # project
-            proj = self.img_fc(feat)  # (batch, seq_len, embedding_dim*2)
-            return proj
+        proj = self.img_fc(feat)  # (batch, seq_len, emb*2)
+        return proj
 
-    def forward(self,
-                x,                     # object features: (num_nodes, input_dim + label_dim)
-                edge_index,            # spatial edge_index for object graph
-                img_feat,              # frame / I3D features (see helper for allowed shapes)
-                video_adj_list=None,   # adjacency for frame-level graph (if used)
-                edge_embeddings=None,  # edge features for graph convs (optional)
-                temporal_adj_list=None,# temporal graph edges (optional)
-                temporal_edge_w=None,  # temporal edge weights
-                batch_vec=None         # batch vector for nodes
-                ):
-        """
-        Notes about shapes:
-         - x: (num_nodes, input_dim + label_dim) where the first input_dim are visual/features,
-              remaining label_dim are object label embeddings (as in your original code)
-         - img_feat: either (num_nodes, img_feat_dim) or (batch, seq_len, img_feat_dim)
-        """
-
+    # -------------------------
+    # Forward
+    # -------------------------
+    def forward(
+        self,
+        x,
+        edge_index,
+        img_feat,
+        video_adj_list=None,
+        edge_embeddings=None,
+        temporal_adj_list=None,
+        temporal_edge_w=None,
+        batch_vec=None
+    ):
         # -------------------------
         # Object feature processing
         # -------------------------
@@ -1431,95 +1393,46 @@ class SpaceTempGoG_detr_dota(nn.Module):
         x_feat = self.relu(self.x_bn1(x_feat))
         x_label = self.obj_l_fc(x[:, self.input_dim:self.input_dim + self.label_dim])
         x_label = self.relu(self.obj_l_bn1(x_label))
-        x_proc = torch.cat((x_feat, x_label), dim=1)  # (num_nodes, g_in_dim)
+        x_proc = torch.cat((x_feat, x_label), dim=1)
 
-        # Spatial graph embedding
-        # If edge attributes exist, use them if the conv supports it.
-        # TransformerConv doesn't accept edge_attr; keep usage simple.
         n_embed_spatial = self.gc1_spatial(x_proc, edge_index)
         n_embed_spatial = self.relu(self.gc1_norm1(n_embed_spatial))
 
-        # Temporal graph embedding (object tracked through time) - if you have separate temporal adjacency
         n_embed_temporal = self.gc1_temporal(x_proc, temporal_adj_list if temporal_adj_list is not None else edge_index)
         n_embed_temporal = self.relu(self.gc1_norm2(n_embed_temporal))
 
-        # Combine object-level spatial+temporal embeddings
-        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), dim=1)  # (num_nodes, embedding_dim)
-        # Pool nodes (SAG pooling reduces nodes based on scores)
+        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), dim=1)
         n_embed, edge_index_p, _, batch_vec_p, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
-        # Graph-level embedding (per-graph)
-        g_embed = global_max_pool(n_embed, batch_vec_p)  # (batch, embedding_dim)
+        g_embed = global_max_pool(n_embed, batch_vec_p)
 
         # -------------------------
         # Frame / Image temporal modeling
         # -------------------------
-        # Project / prepare frame features to (batch, seq_len, embedding_dim*2)
         frame_feats = self._project_img_feats(img_feat)  # (batch, seq_len, emb*2)
-
         batch_size, seq_len, feat_dim = frame_feats.shape
-        # Add positional encodings (slice to seq_len)
-        if seq_len > self.positional_enc.shape[0]:
-            # If sequence longer than positional enc table, wrap or expand; here we slice to max
-            pe = self.positional_enc  # (max_pos, feat)
-        else:
-            pe = self.positional_enc[:seq_len, :].unsqueeze(0).expand(batch_size, -1, -1)
 
-        frame_feats = frame_feats + pe  # (batch, seq_len, emb*2)
+        pe = self.positional_enc[:seq_len, :].unsqueeze(0).expand(batch_size, -1, -1)
+        frame_feats = frame_feats + pe
 
-        # Temporal transformer encoding
-        frame_encoded = self.temporal_transformer(frame_feats)  # (batch, seq_len, emb*2)
-        # Optionally, obtain a single frame-level embedding by pooling along time
+        frame_encoded = self.temporal_transformer(frame_feats)
         frame_pooled = frame_encoded.mean(dim=1)  # (batch, emb*2)
 
         # -------------------------
         # Cross-attention fusion
         # -------------------------
-        # Project graph embedding to same dim
-        g_q = self.g_proj(g_embed).unsqueeze(1)  # (batch, 1, emb*2) as query
-
-        # MultiheadAttention expects (batch, seq_q, emb)
-        # Use frame_encoded as key/value (batch, seq_len, emb*2)
-        attn_output, attn_weights = self.cross_attn(query=g_q, key=frame_encoded, value=frame_encoded, need_weights=True)
-        # attn_output: (batch, 1, emb*2)
-        attn_output = attn_output.squeeze(1)  # (batch, emb*2)
-        # Residual + norm
-        fused = self.cross_attn_norm(attn_output + g_q.squeeze(1))  # (batch, emb*2)
+        g_q = self.g_proj(g_embed).unsqueeze(1)
+        attn_output, _ = self.cross_attn(g_q, frame_encoded, frame_encoded, need_weights=False)
+        attn_output = attn_output.squeeze(1)
+        fused = self.cross_attn_norm(attn_output + g_q.squeeze(1))
 
         # -------------------------
-        # Build final embedding and classify
+        # Classifier
         # -------------------------
-        # g_embed (batch, emb), fused (batch, emb*2), frame_pooled (batch, emb*2)
-        # Concatenate: reduce dims to a manageable classifier input
-        # To be robust, ensure shapes are batch-first
-        if g_embed.dim() == 1:
-            g_embed = g_embed.unsqueeze(0)
-
-        # Take global mean of node features too (optional) - not using here to avoid dimension blowup
-        final_feat = torch.cat([
-            g_embed,               # (batch, emb)
-            fused,                 # (batch, emb*2)
-            frame_pooled           # (batch, emb*2)
-        ], dim=1)  # (batch, emb + emb*2 + emb*2) = (batch, emb*5) but we used embedding_dim * 3 in fc -> ensure compatible
-
-        # Project to classifier hidden dim
-        # Adjusted input dim compute to match actual concatenation:
-        # g_embed: embedding_dim
-        # fused: embedding_dim*2
-        # frame_pooled: embedding_dim*2
-        # => total = embedding_dim * 5
-        # But classifier fc expects embedding_dim * 3 in __init__, so let's compute correctly here:
-        clf_in_dim = final_feat.shape[1]
-        # Create a small MLP on the fly (if mismatch). To keep module consistency we use classify_fc1 but
-        # ensure its input features match; if not, use a small linear adapter.
-        if self.classify_fc1.in_features != clf_in_dim:
-            # lazy adapter
-            adapter = nn.Linear(clf_in_dim, self.classify_fc1.in_features).to(final_feat.device)
-            final_feat = adapter(final_feat)
-
+        final_feat = torch.cat([g_embed, fused, frame_pooled], dim=1)
         out = self.classify_fc1(final_feat)
         out = F.relu(out)
         out = self.classify_dropout(out)
-        logits = self.classify_fc2(out)  # (batch, num_classes)
+        logits = self.classify_fc2(out)
         probs = self.softmax(logits)
 
         return logits, probs
