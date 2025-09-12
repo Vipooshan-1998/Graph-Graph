@@ -1812,9 +1812,9 @@ import torch.nn.functional as F
 from torch_geometric.nn import TransformerConv, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 
-class ImgFeatFusionModel(nn.Module):
+class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, img_feat_dim=2048, embedding_dim=128, attn_heads=4, num_classes=2):
-        super(ImgFeatFusionModel, self).__init__()
+        super(SpaceTempGoG_detr_dad, self).__init__()
 
         self.embedding_dim = embedding_dim
         self.num_heads = 4
