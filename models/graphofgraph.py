@@ -1809,16 +1809,11 @@ class SpaceTempGoG_detr_dota(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import (
-    TransformerConv,
-    SAGPooling,
-    global_max_pool,
-    InstanceNorm
-)
+from torch_geometric.nn import TransformerConv, SAGPooling, global_max_pool, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, lstm_hidden=128, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, attn_heads=4, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
         self.num_heads = 4
@@ -1877,14 +1872,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
-        # One-directional LSTM on img_feat
-        self.img_lstm = nn.LSTM(
-            input_size=embedding_dim * 2,
-            hidden_size=lstm_hidden,
-            num_layers=1,
-            batch_first=True,
-            bidirectional=False
-        )
+        # -----------------------
+        # Multihead Attention branch instead of LSTM
+        # -----------------------
+        self.img_attn = nn.MultiheadAttention(embed_dim=embedding_dim * 2, num_heads=attn_heads, batch_first=True)
 
         # -----------------------
         # Frame-level graph encoding
@@ -1909,7 +1900,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         concat_dim = (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim * 2) + \
-                     lstm_hidden  # include LSTM branch
+                     (embedding_dim * 2)  # MultiheadAttention branch output
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -1954,9 +1945,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Parallel TemporalFusionTransformer
         img_feat_fusion = self.temporal_fusion_transformer(img_feat_trans.unsqueeze(0)).squeeze(0)  # (B, 256)
 
-        # LSTM branch
-        img_feat_lstm, _ = self.img_lstm(img_feat_trans.unsqueeze(1))  # (B, 1, lstm_hidden)
-        img_feat_lstm = img_feat_lstm.squeeze(1)  # (B, lstm_hidden)
+        # Multihead Attention branch
+        img_feat_attn, _ = self.img_attn(img_feat_trans.unsqueeze(1), img_feat_trans.unsqueeze(1), img_feat_trans.unsqueeze(1))
+        img_feat_attn = img_feat_attn.squeeze(1)  # (B, embedding_dim*2)
 
         # -----------------------
         # Frame-level embeddings
@@ -1965,7 +1956,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
         # Concatenate all features
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion, img_feat_lstm), 1)
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion, img_feat_attn), 1)
 
         # -----------------------
         # Classification
@@ -1975,6 +1966,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
