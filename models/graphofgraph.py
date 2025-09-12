@@ -1487,7 +1487,7 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 #         return logits_mc, probs_mc
 
 
-# # This gave 75 on orig dataset, parallel two transformer
+# This gave 75 on orig dataset, parallel two transformer
 # import torch
 # import torch.nn as nn
 # import torch.nn.functional as F
@@ -1854,18 +1854,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # -----------------------
-        # Cross-graph attention (interaction between spatial + temporal)
-        # -----------------------
-        self.gc_cross = TransformerConv(
-            in_channels=(embedding_dim // 2 * self.num_heads) * 2,  # concat spatial + temporal
-            out_channels=embedding_dim // 2,
-            heads=self.num_heads
-        )
-        self.gc_cross_norm = InstanceNorm(embedding_dim // 2 * self.num_heads)
-
-        # Graph pooling (match gc_cross output)
-        self.pool = SAGPooling(embedding_dim // 2 * self.num_heads, ratio=0.8)
+        # Graph pooling
+        self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
 
         # -----------------------
         # I3D features -> Transformer
@@ -1891,7 +1881,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Frame-level graph encoding
         # -----------------------
         self.gc2_sg = TransformerConv(
-            in_channels=embedding_dim // 2 * self.num_heads,
+            in_channels=embedding_dim * self.num_heads,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
@@ -1905,12 +1895,23 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # -----------------------
+        # Attention-based fusion of graph + I3D features
+        # -----------------------
+        fusion_dim = (embedding_dim // 2 * self.num_heads) + \
+                     (embedding_dim // 2 * self.num_heads) + \
+                     (embedding_dim * 2)
+
+        self.attn_weights = nn.Sequential(
+            nn.Linear(fusion_dim, fusion_dim // 2),
+            nn.Tanh(),
+            nn.Linear(fusion_dim // 2, 3),  # 3 components: sg, i3d, fusion
+            nn.Softmax(dim=-1)
+        )
+
+        # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim * 2)  # adding temporal fusion branch
-        self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
+        self.classify_fc1 = nn.Linear(fusion_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
         self.relu = nn.LeakyReLU(0.2)
@@ -1938,28 +1939,19 @@ class SpaceTempGoG_detr_dad(nn.Module):
             self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
         ))
 
-        # -----------------------
-        # Cross-graph attention
-        # -----------------------
-        n_embed_cross = torch.cat((n_embed_spatial, n_embed_temporal), dim=-1)
-        n_embed_cross = self.relu(self.gc_cross_norm(self.gc_cross(n_embed_cross, edge_index)))
-
-        # Graph pooling
-        n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed_cross, edge_index, None, batch_vec)
+        # Concat + pooling
+        n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
+        n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
         g_embed = global_max_pool(n_embed, batch_vec)
 
         # -----------------------
         # I3D feature processing
         # -----------------------
-        # Original Transformer
         img_feat_orig = self.img_fc(img_feat).unsqueeze(0)
-        img_feat_orig = self.temporal_transformer(img_feat_orig)
-        img_feat_orig = img_feat_orig.squeeze(0)
+        img_feat_orig = self.temporal_transformer(img_feat_orig).squeeze(0)
 
-        # Parallel TemporalFusionTransformer
         img_feat_fusion = self.img_fc(img_feat).unsqueeze(0)
-        img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion)
-        img_feat_fusion = img_feat_fusion.squeeze(0)
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion).squeeze(0)
 
         # -----------------------
         # Frame-level embeddings
@@ -1967,8 +1959,19 @@ class SpaceTempGoG_detr_dad(nn.Module):
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
-        # Concatenate all features
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion), 1)
+        # -----------------------
+        # Attention-based fusion
+        # -----------------------
+        stacked_features = torch.cat(
+            (frame_embed_sg, frame_embed_img, img_feat_fusion), dim=-1
+        )  # (B, fusion_dim)
+
+        weights = self.attn_weights(stacked_features)  # (B, 3)
+        weights = weights.unsqueeze(-1)  # (B, 3, 1)
+
+        # split features
+        stacked_features = torch.stack([frame_embed_sg, frame_embed_img, img_feat_fusion], dim=1)  # (B,3,D)
+        frame_embed_ = torch.sum(weights * stacked_features, dim=1)  # weighted sum
 
         # -----------------------
         # Classification
@@ -1978,6 +1981,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
