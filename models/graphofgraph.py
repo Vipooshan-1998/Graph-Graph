@@ -1818,30 +1818,27 @@ from torch_geometric.nn import (
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2, dropout_rate=0.2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
         self.num_heads = 4
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
-        self.dropout_rate = dropout_rate
-        self.num_classes = num_classes  # NEW: Store num_classes for clarity
 
         # -----------------------
         # Object graph features
         # -----------------------
-        self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)
+        self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)   # 2048 -> 256
         self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
-        self.x_dropout = nn.Dropout(self.dropout_rate) # NEW: Dropout for FC
-        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
+        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)         # 300 -> 64
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
         # -----------------------
         # Spatial and temporal graph transformers
         # -----------------------
         self.gc1_spatial = TransformerConv(
-            in_channels=embedding_dim * 2 + embedding_dim // 2,
-            out_channels=embedding_dim // 2,
+            in_channels=embedding_dim * 2 + embedding_dim // 2,  # 256+64=320
+            out_channels=embedding_dim // 2,                      # 64
             heads=self.num_heads,
             edge_dim=1,
             beta=True
@@ -1857,35 +1854,39 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
+        # Graph pooling
         self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
 
         # -----------------------
-        # I3D features -> Transformer
+        # I3D features -> Transformers
         # -----------------------
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
-        self.img_bn = nn.BatchNorm1d(embedding_dim * 2) # NEW: BN for I3D features
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
 
-        # IMPROVEMENT 1: Specialized Temporal Transformers
-        # Original branch: Focuses on local temporal dependencies
-        encoder_layer_orig = TransformerEncoderLayer(
+        # Original Transformer branch
+        encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
-            dim_feedforward=embedding_dim * 4, # Slightly larger FFN
-            dropout=self.dropout_rate, # Added dropout
             batch_first=True
         )
-        self.temporal_transformer = TransformerEncoder(encoder_layer_orig, num_layers=2)
+        self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
-        # Fusion branch: Focuses on global context and accident-specific cues
+        # Parallel Fusion Transformer branch
         encoder_layer_fusion = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
-            dim_feedforward=embedding_dim * 4,
-            dropout=self.dropout_rate,
-            batch_first=True
+            batch_first=True,
+            dropout=0.1
         )
-        # Use a deeper transformer for the fusion branch to capture complex patterns
-        self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=4)
+        self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
+
+        # NEW: Perceiver-style transformer branch
+        encoder_layer_perceiver = TransformerEncoderLayer(
+            d_model=embedding_dim * 2,
+            nhead=8,                # deeper attention
+            batch_first=True,
+            dropout=0.2
+        )
+        self.temporal_perceiver = TransformerEncoder(encoder_layer_perceiver, num_layers=3)
 
         # -----------------------
         # Frame-level graph encoding
@@ -1904,45 +1905,18 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # IMPROVEMENT 2: Smart Feature Fusion (Gated Fusion)
-        # Instead of just concatenating, learn how to blend features
-        fusion_dim = (embedding_dim // 2 * self.num_heads) * 2 + (embedding_dim * 2)
-        self.fusion_gate = nn.Sequential( # NEW: Gating mechanism
-            nn.Linear(fusion_dim, fusion_dim // 2),
-            nn.BatchNorm1d(fusion_dim // 2),
-            nn.ReLU(),
-            nn.Linear(fusion_dim // 2, fusion_dim),
-            nn.Sigmoid()
-        )
-
         # -----------------------
         # Classification
         # -----------------------
-        self.classify_fc1 = nn.Linear(fusion_dim, embedding_dim)
-        self.classify_bn1 = nn.BatchNorm1d(embedding_dim) # NEW: BN before classification
-        self.classify_dropout = nn.Dropout(self.dropout_rate) # NEW: Dropout for classifier
+        concat_dim = (embedding_dim // 2 * self.num_heads) + \
+                     (embedding_dim // 2 * self.num_heads) + \
+                     (embedding_dim * 2) + \
+                     (embedding_dim * 2)   # <-- added perceiver branch
+        self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
-
-        # IMPROVEMENT 3: Initialize weights for better training
-        self._init_weights()
 
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
-
-    def _init_weights(self):
-        # Initialize transformer layers with Xavier initialization
-        for p in self.temporal_transformer.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-        for p in self.temporal_fusion_transformer.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-        # Initialize linear layers
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
                 temporal_adj_list, temporal_edge_w, batch_vec):
@@ -1951,38 +1925,39 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Object graph processing
         # -----------------------
         x_feat = self.relu(self.x_bn1(self.x_fc(x[:, :self.input_dim])))
-        x_feat = self.x_dropout(x_feat) # Apply dropout
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
-        x = torch.cat((x_feat, x_label), 1)
+        x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
+        # Spatial graph
         edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_spatial = self.relu(self.gc1_norm1(
             self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
         ))
 
+        # Temporal graph
         edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_temporal = self.relu(self.gc1_norm2(
             self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
         ))
 
+        # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
         g_embed = global_max_pool(n_embed, batch_vec)
 
         # -----------------------
-        # I3D feature processing
+        # I3D feature processing (3 parallel branches)
         # -----------------------
-        # Process I3D features with BN first
-        img_feat_proj = self.relu(self.img_bn(self.img_fc(img_feat))) # Apply BN
-        img_feat_proj = img_feat_proj.unsqueeze(0) # Add sequence dimension
+        img_feat_proj = self.img_fc(img_feat).unsqueeze(0)
 
-        # Original branch
-        img_feat_orig = self.temporal_transformer(img_feat_proj)
-        img_feat_orig = img_feat_orig.squeeze(0)
+        # Branch 1: Original Transformer
+        img_feat_orig = self.temporal_transformer(img_feat_proj).squeeze(0)
 
-        # Fusion branch - deeper processing
-        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj)
-        img_feat_fusion = img_feat_fusion.squeeze(0)
+        # Branch 2: Fusion Transformer
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj).squeeze(0)
+
+        # Branch 3: Perceiver Transformer
+        img_feat_perceiver = self.temporal_perceiver(img_feat_proj).squeeze(0)
 
         # -----------------------
         # Frame-level embeddings
@@ -1990,42 +1965,19 @@ class SpaceTempGoG_detr_dad(nn.Module):
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
-        # IMPROVEMENT 2: Gated Fusion instead of simple concat
-        to_fuse = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion), 1)
-        fusion_gate_values = self.fusion_gate(to_fuse)
-        frame_embed_ = to_fuse * fusion_gate_values # Element-wise gating
+        # Concatenate all features
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img,
+                                  img_feat_fusion, img_feat_perceiver), 1)
 
         # -----------------------
         # Classification
         # -----------------------
-        frame_embed_ = self.relu(self.classify_bn1(self.classify_fc1(frame_embed_)))
-        frame_embed_ = self.classify_dropout(frame_embed_) # Apply dropout
+        frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
         logits_mc = self.classify_fc2(frame_embed_)
-        
-        # RETURN BOTH logits and probabilities
-        probs_mc = self.softmax(logits_mc)  # Keep softmax for probability output
+        probs_mc = self.softmax(logits_mc)
 
-        return logits_mc, probs_mc  # Return both as originally required
+        return logits_mc, probs_mc
 
-# IMPROVEMENT 4: External Focal Loss Class to handle severe class imbalance
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.75, gamma=2.0, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        BCE_loss = F.cross_entropy(inputs, targets, reduction='none')
-        pt = torch.exp(-BCE_loss)
-        F_loss = self.alpha * (1-pt)**self.gamma * BCE_loss
-
-        if self.reduction == 'mean':
-            return torch.mean(F_loss)
-        elif self.reduction == 'sum':
-            return torch.sum(F_loss)
-        else:
-            return F_loss
 
 
 
