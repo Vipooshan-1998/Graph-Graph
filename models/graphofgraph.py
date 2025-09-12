@@ -1855,7 +1855,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # -----------------------
-        # Cross-Graph Attention
+        # Cross-graph attention (interaction between spatial + temporal)
         # -----------------------
         self.gc_cross = TransformerConv(
             in_channels=(embedding_dim // 2 * self.num_heads) * 2,  # concat spatial + temporal
@@ -1864,8 +1864,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.gc_cross_norm = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        # Graph pooling
-        self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
+        # Graph pooling (match gc_cross output)
+        self.pool = SAGPooling(embedding_dim // 2 * self.num_heads, ratio=0.8)
 
         # -----------------------
         # I3D features -> Transformer
@@ -1891,7 +1891,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Frame-level graph encoding
         # -----------------------
         self.gc2_sg = TransformerConv(
-            in_channels=embedding_dim * self.num_heads,
+            in_channels=embedding_dim // 2 * self.num_heads,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
@@ -1939,24 +1939,24 @@ class SpaceTempGoG_detr_dad(nn.Module):
         ))
 
         # -----------------------
-        # Cross-Graph Attention
+        # Cross-graph attention
         # -----------------------
         n_embed_cross = torch.cat((n_embed_spatial, n_embed_temporal), dim=-1)
-        n_embed_cross = self.relu(self.gc_cross_norm(
-            self.gc_cross(n_embed_cross, edge_index)
-        ))
+        n_embed_cross = self.relu(self.gc_cross_norm(self.gc_cross(n_embed_cross, edge_index)))
 
-        # Concat + pooling
+        # Graph pooling
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed_cross, edge_index, None, batch_vec)
         g_embed = global_max_pool(n_embed, batch_vec)
 
         # -----------------------
         # I3D feature processing
         # -----------------------
+        # Original Transformer
         img_feat_orig = self.img_fc(img_feat).unsqueeze(0)
         img_feat_orig = self.temporal_transformer(img_feat_orig)
         img_feat_orig = img_feat_orig.squeeze(0)
 
+        # Parallel TemporalFusionTransformer
         img_feat_fusion = self.img_fc(img_feat).unsqueeze(0)
         img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion)
         img_feat_fusion = img_feat_fusion.squeeze(0)
@@ -1978,10 +1978,6 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
-
-
-
-
 
 
 
