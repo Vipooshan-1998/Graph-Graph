@@ -1813,7 +1813,7 @@ from torch_geometric.nn import TransformerConv, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, img_feat_dim=2048, embedding_dim=128, attn_heads=4, num_classes=2):
+    def __init__(self, input_dim=4096, embedding_dim=128, img_feat_dim=2048, attn_heads=4, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -1880,18 +1880,19 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
-                temporal_adj_list, temporal_edge_w, batch_vec):
+    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
+                temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
+
         # -----------------------
-        # Project features
+        # Image feature processing
         # -----------------------
         img_feat_proj = self.img_fc(img_feat)  # (B, 256)
 
-        # -----------------------
-        # TransformerEncoder branches
-        # -----------------------
-        img_feat_orig = self.temporal_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)  # (B, 256)
-        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)  # (B, 256)
+        # Original Transformer
+        img_feat_orig = self.temporal_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
+
+        # Parallel TemporalFusionTransformer
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
 
         # Multihead attention branch
         img_feat_attn, _ = self.img_attn(
@@ -1899,7 +1900,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
             img_feat_proj.unsqueeze(1),
             img_feat_proj.unsqueeze(1)
         )
-        img_feat_attn = img_feat_attn.squeeze(1)  # (B, 256)
+        img_feat_attn = img_feat_attn.squeeze(1)
 
         # -----------------------
         # Graph TransformerConv
