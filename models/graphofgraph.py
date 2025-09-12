@@ -1809,12 +1809,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import (
-    TransformerConv,
-    SAGPooling,
-    global_max_pool,
-    InstanceNorm
-)
+from torch_geometric.nn import TransformerConv, SAGPooling, global_max_pool, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class SpaceTempGoG_detr_dad(nn.Module):
@@ -1824,21 +1819,22 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.num_heads = 4
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
+        fusion_dim = embedding_dim * 2  # common dimension for fusion
 
         # -----------------------
         # Object graph features
         # -----------------------
-        self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)   # 2048 -> 256
+        self.x_fc = nn.Linear(self.input_dim, embedding_dim * 2)
         self.x_bn1 = nn.BatchNorm1d(embedding_dim * 2)
-        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)         # 300 -> 64
+        self.obj_l_fc = nn.Linear(300, embedding_dim // 2)
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
         # -----------------------
         # Spatial and temporal graph transformers
         # -----------------------
         self.gc1_spatial = TransformerConv(
-            in_channels=embedding_dim * 2 + embedding_dim // 2,  # 256+64=320
-            out_channels=embedding_dim // 2,                      # 64
+            in_channels=embedding_dim * 2 + embedding_dim // 2,
+            out_channels=embedding_dim // 2,
             heads=self.num_heads,
             edge_dim=1,
             beta=True
@@ -1860,52 +1856,36 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # I3D features -> Transformer
         # -----------------------
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
-        encoder_layer = TransformerEncoderLayer(
-            d_model=embedding_dim * 2,
-            nhead=4,
-            batch_first=True
-        )
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
+        encoder_layer = TransformerEncoderLayer(d_model=embedding_dim * 2, nhead=4, batch_first=True)
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
-        # Parallel TemporalFusionTransformer branch
-        encoder_layer_fusion = TransformerEncoderLayer(
-            d_model=embedding_dim * 2,
-            nhead=4,
-            batch_first=True,
-            dropout=0.1
-        )
+        encoder_layer_fusion = TransformerEncoderLayer(d_model=embedding_dim * 2, nhead=4, batch_first=True, dropout=0.1)
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
         # -----------------------
         # Frame-level graph encoding
         # -----------------------
-        self.gc2_sg = TransformerConv(
-            in_channels=embedding_dim * self.num_heads,
-            out_channels=embedding_dim // 2,
-            heads=self.num_heads
-        )
+        self.gc2_sg = TransformerConv(in_channels=embedding_dim * self.num_heads,
+                                      out_channels=embedding_dim // 2,
+                                      heads=self.num_heads)
         self.gc2_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        self.gc2_i3d = TransformerConv(
-            in_channels=embedding_dim * 2,
-            out_channels=embedding_dim // 2,
-            heads=self.num_heads
-        )
+        self.gc2_i3d = TransformerConv(in_channels=embedding_dim * 2,
+                                       out_channels=embedding_dim // 2,
+                                       heads=self.num_heads)
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # -----------------------
-        # Attention-based fusion of graph + I3D features
+        # Fusion projections
         # -----------------------
-        fusion_dim = (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim * 2)
+        self.proj_sg = nn.Linear(embedding_dim // 2 * self.num_heads, fusion_dim)
+        self.proj_img = nn.Linear(embedding_dim // 2 * self.num_heads, fusion_dim)
+        self.proj_fusion = nn.Linear(embedding_dim * 2, fusion_dim)
 
         self.attn_weights = nn.Sequential(
-            nn.Linear(fusion_dim, fusion_dim // 2),
-            nn.Tanh(),
-            nn.Linear(fusion_dim // 2, 3),  # 3 components: sg, i3d, fusion
-            nn.Softmax(dim=-1)
+            nn.Linear(fusion_dim * 3, 3),
+            nn.Softmax(dim=1)
         )
 
         # -----------------------
@@ -1925,19 +1905,15 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         x_feat = self.relu(self.x_bn1(self.x_fc(x[:, :self.input_dim])))
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
-        x = torch.cat((x_feat, x_label), 1)  # (N, 320)
+        x = torch.cat((x_feat, x_label), 1)
 
         # Spatial graph
         edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
-        n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
-        ))
+        n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)))
 
         # Temporal graph
         edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
-        n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
-        ))
+        n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)))
 
         # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
@@ -1960,18 +1936,20 @@ class SpaceTempGoG_detr_dad(nn.Module):
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
         # -----------------------
-        # Attention-based fusion
+        # Fusion of Graph + I3D features
         # -----------------------
-        stacked_features = torch.cat(
-            (frame_embed_sg, frame_embed_img, img_feat_fusion), dim=-1
-        )  # (B, fusion_dim)
+        frame_embed_sg_proj = self.proj_sg(frame_embed_sg)
+        frame_embed_img_proj = self.proj_img(frame_embed_img)
+        img_feat_fusion_proj = self.proj_fusion(img_feat_fusion)
 
-        weights = self.attn_weights(stacked_features)  # (B, 3)
-        weights = weights.unsqueeze(-1)  # (B, 3, 1)
+        stacked_features = torch.stack(
+            [frame_embed_sg_proj, frame_embed_img_proj, img_feat_fusion_proj], dim=1
+        )  # (B,3,fusion_dim)
 
-        # split features
-        stacked_features = torch.stack([frame_embed_sg, frame_embed_img, img_feat_fusion], dim=1)  # (B,3,D)
-        frame_embed_ = torch.sum(weights * stacked_features, dim=1)  # weighted sum
+        weights = self.attn_weights(torch.cat([frame_embed_sg_proj, frame_embed_img_proj, img_feat_fusion_proj], dim=-1))
+        weights = weights.unsqueeze(-1)  # (B,3,1)
+
+        frame_embed_ = torch.sum(weights * stacked_features, dim=1)  # (B,fusion_dim)
 
         # -----------------------
         # Classification
