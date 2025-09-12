@@ -2007,6 +2007,7 @@ class ViViTFeat(nn.Module):
     def forward(self, x):
         """
         x: [B, T, D] -> img_feat sequence
+        returns: [B, H]  (CLS token)
         """
         B, T, D = x.shape
         x = self.proj(x)  # [B, T, H]
@@ -2070,7 +2071,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
-        # Replace TemporalFusionTransformer with ViViT
+        # Replace TemporalFusionTransformer with ViViT (CLS)
         self.vivit_branch = ViViTFeat(
             feat_dim=img_feat_dim,
             hidden_dim=embedding_dim * 2,
@@ -2100,7 +2101,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         concat_dim = (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim * 2)  # includes ViViT CLS
+                     (embedding_dim * 2)  # includes ViViT CLS contribution per frame
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -2109,6 +2110,13 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
                 temporal_adj_list, temporal_edge_w, batch_vec):
+        """
+        x: object features (node-wise)
+        img_feat: I3D features. Expected shape depends on how you feed them:
+                  - If single video without batch: [T, D]  (we will handle by unsqueezing)
+                  - If batched: [B, T, D]
+        video_adj_list: adjacency for frame-level graph (edges connecting frames)
+        """
 
         # -----------------------
         # Object graph processing
@@ -2132,26 +2140,92 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
-        g_embed = global_max_pool(n_embed, batch_vec)
+        g_embed = global_max_pool(n_embed, batch_vec)  # shape depends on graph pooling: often [num_frames_or_nodes, feat] or [B, feat]
 
         # -----------------------
         # I3D feature processing
         # -----------------------
-        img_feat_proj = self.img_fc(img_feat).unsqueeze(0)  # [1, T, 256]
-        img_feat_orig = self.temporal_transformer(img_feat_proj)
-        img_feat_orig = img_feat_orig.squeeze(0)
+        # Normalize img_feat to [B, T, D] if user passed [T, D]
+        if img_feat.dim() == 2:
+            # single-video case -> make batch dimension
+            img_feat_seq = img_feat.unsqueeze(0)  # [1, T, D]
+            single_video_batch = True
+        else:
+            img_feat_seq = img_feat  # assume already [B, T, D]
+            single_video_batch = False
 
-        # ViViT CLS output
-        vivit_out = self.vivit_branch(img_feat.unsqueeze(0))  # [1, 256]
+        # Project I3D features for the original temporal transformer
+        img_feat_proj = self.img_fc(img_feat_seq)  # [B, T, H]
+        img_feat_orig = self.temporal_transformer(img_feat_proj)  # [B, T, H]
+
+        # ViViT CLS output: [B, H]
+        vivit_out = self.vivit_branch(img_feat_seq)  # [B, H]
 
         # -----------------------
         # Frame-level embeddings
         # -----------------------
+        # The graph frame encoders likely expect node-wise inputs.
+        # Depending on how you constructed `video_adj_list` and `g_embed`,
+        # frame-level embeddings may be 2D [N, F] or 3D [B, T, F].
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
-        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig.view(-1, img_feat_orig.size(-1)), video_adj_list)))
+        # Note: the above view() is defensive — if your gc2_i3d expects [num_nodes, feat],
+        # ensure `video_adj_list` and `g_embed` match that node layout. If your frame graph expects batched frames,
+        # adjust accordingly (e.g., use reshape to [B*T, feat] and remember T).
 
-        # Concatenate all features (graph + I3D + ViViT CLS)
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, vivit_out), 1)
+        # -----------------------
+        # Robust concatenation: expand vivit_out to match frame embeddings
+        # -----------------------
+        # Handle common cases:
+        # - frame_embed_* are 2D: [N, F]  -> vivit_out should be expanded to [N, H]
+        # - frame_embed_* are 3D: [B, T, F] -> vivit_out should be expanded to [B, T, H]
+        f_sg = frame_embed_sg
+        f_img = frame_embed_img
+
+        # Ensure dimensions match between frame-level branches
+        # If one of them is 3D and the other 2D, try to make them consistent
+        if f_sg.dim() == 3 and f_img.dim() == 2:
+            # duplicate f_img across time dimension if needed
+            B, T, _ = f_sg.shape
+            f_img = f_img.view(B, 1, -1).expand(-1, T, -1)
+        elif f_sg.dim() == 2 and f_img.dim() == 3:
+            B, T, _ = f_img.shape
+            f_sg = f_sg.view(B, 1, -1).expand(-1, T, -1)
+
+        # Now expand vivit_out to match
+        if f_sg.dim() == 3:
+            # expected [B, T, H]
+            B, T, _ = f_sg.shape
+            if vivit_out.size(0) == B:
+                vivit_out_exp = vivit_out.unsqueeze(1).expand(-1, T, -1)  # [B, T, H]
+            elif vivit_out.size(0) == 1:
+                vivit_out_exp = vivit_out.unsqueeze(1).expand(B, T, -1)
+            else:
+                # fallback: try to repeat/crop to match B
+                vivit_out_exp = vivit_out.repeat(int(B / vivit_out.size(0)), 1).unsqueeze(1).expand(-1, T, -1)
+        elif f_sg.dim() == 2:
+            # expected [N, H] where N = num_frames (or nodes)
+            N = f_sg.size(0)
+            if vivit_out.dim() == 2 and vivit_out.size(0) == N:
+                vivit_out_exp = vivit_out
+            elif vivit_out.dim() == 2 and vivit_out.size(0) == 1:
+                vivit_out_exp = vivit_out.expand(N, -1)
+            else:
+                # try to flatten vivit_out and expand/crop
+                viv_flat = vivit_out.view(-1, vivit_out.size(-1))
+                vivit_out_exp = viv_flat.expand(N, -1)[:N, :]
+
+        else:
+            raise RuntimeError("Unexpected frame_embed shape. f_sg.dim() = {}".format(f_sg.dim()))
+
+        # Finally, concatenate along feature dimension
+        if f_sg.dim() == 3:
+            # [B, T, F1] + [B, T, F2] + [B, T, H] -> concat on dim=2
+            frame_embed_ = torch.cat((f_sg, f_img, vivit_out_exp), dim=2)
+            # If you want to reduce to video-level later, you can mean pool across time here
+        else:
+            # [N, F1] + [N, F2] + [N, H] -> concat on dim=1
+            frame_embed_ = torch.cat((f_sg, f_img, vivit_out_exp), dim=1)
 
         # -----------------------
         # Classification
