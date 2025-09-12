@@ -1817,26 +1817,11 @@ from torch_geometric.nn import (
 )
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
-# Try importing TFT; if unavailable, we'll use a fallback.
-try:
-    from pytorch_forecasting.models import TemporalFusionTransformer
-    TFT_AVAILABLE = True
-except Exception:
-    TFT_AVAILABLE = False
-
-
 class SpaceTempGoG_detr_dad(nn.Module):
-    """
-    Same architecture as the DOTA version, with a parallel TemporalFusionTransformer (TFT)
-    branch on img_feat. TFT is used when pytorch_forecasting is available and properly wired;
-    otherwise a fallback linear projection is used.
-    """
-
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2,
-                 num_heads=4):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
-        self.num_heads = num_heads
+        self.num_heads = 4
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
 
@@ -1851,32 +1836,33 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # Spatial and temporal graph transformers
         # -----------------------
-        in_ch = embedding_dim * 2 + embedding_dim // 2  # 256 + 64 = 320
         self.gc1_spatial = TransformerConv(
-            in_channels=in_ch,
-            out_channels=embedding_dim // 2,
+            in_channels=embedding_dim * 2 + embedding_dim // 2,  # 256+64=320
+            out_channels=embedding_dim // 2,                      # 64
             heads=self.num_heads,
             edge_dim=1,
             beta=True
         )
-        self.gc1_norm1 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        self.gc1_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         self.gc1_temporal = TransformerConv(
-            in_channels=in_ch,
+            in_channels=embedding_dim * 2 + embedding_dim // 2,
             out_channels=embedding_dim // 2,
             heads=self.num_heads,
             edge_dim=1,
             beta=True
         )
-        self.gc1_norm2 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # Graph pooling
         self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
 
         # -----------------------
-        # I3D features -> Transformer
+        # I3D features -> Transformers
         # -----------------------
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
+
+        # Original Transformer branch
         encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
@@ -1884,60 +1870,48 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
-        # -----------------------
-        # Parallel TFT branch (if available); otherwise fallback linear
-        # -----------------------
-        self.use_tft = False
-        if TFT_AVAILABLE:
-            # We cannot construct a full TFT without a dataset; use a lightweight wrapper approach.
-            # The recommended way is to build a TimeSeriesDataSet and call TemporalFusionTransformer.from_dataset(...)
-            # and train/evaluate TFT separately. Here we instantiate a minimal TFT-like module if possible.
-            try:
-                # Create a minimal TFT with matching output dims — user should replace `.from_dataset(...)` properly.
-                # This is a placeholder; many users prefer to train TFT separately with a TimeSeriesDataSet.
-                self.tft = TemporalFusionTransformer.from_dataset(
-                    dataset=None,  # placeholder; proper dataset required for full functionality
-                    learning_rate=1e-3,
-                    hidden_size=embedding_dim,
-                    attention_head_size=max(1, embedding_dim // 64),
-                    dropout=0.1,
-                    hidden_continuous_size=embedding_dim,
-                    output_size=embedding_dim,  # project to embedding_dim for concatenation
-                )
-                # If constructed successfully, use it
-                self.use_tft = True
-            except Exception:
-                # fallback to linear if from_dataset or config fails
-                self.use_tft = False
+        # Parallel Fusion Transformer branch
+        encoder_layer_fusion = TransformerEncoderLayer(
+            d_model=embedding_dim * 2,
+            nhead=4,
+            batch_first=True,
+            dropout=0.1
+        )
+        self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
-        if not self.use_tft:
-            # fallback linear projection to produce features of size `embedding_dim`
-            self.tft_fallback = nn.Linear(embedding_dim * 2, embedding_dim)
+        # NEW: Perceiver-style transformer branch
+        encoder_layer_perceiver = TransformerEncoderLayer(
+            d_model=embedding_dim * 2,
+            nhead=8,                # deeper attention
+            batch_first=True,
+            dropout=0.2
+        )
+        self.temporal_perceiver = TransformerEncoder(encoder_layer_perceiver, num_layers=3)
 
         # -----------------------
         # Frame-level graph encoding
         # -----------------------
-        # NOTE: gc2_sg expects g_embed input dim; we'll set it to (embedding_dim // 2) * num_heads to match pooled outputs
         self.gc2_sg = TransformerConv(
-            in_channels=(embedding_dim // 2) * self.num_heads,
+            in_channels=embedding_dim * self.num_heads,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
-        self.gc2_norm1 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        self.gc2_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         self.gc2_i3d = TransformerConv(
             in_channels=embedding_dim * 2,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
-        self.gc2_norm2 = InstanceNorm((embedding_dim // 2) * self.num_heads)
+        self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # -----------------------
         # Classification
         # -----------------------
         concat_dim = (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim // 2 * self.num_heads) + \
-                     embedding_dim  # TFT (or fallback) output dim
+                     (embedding_dim * 2) + \
+                     (embedding_dim * 2)   # <-- added perceiver branch
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -1946,85 +1920,64 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings,
                 temporal_adj_list, temporal_edge_w, batch_vec):
-        """
-        x: (N_nodes, input_dim + label_dim)
-        img_feat: (B, img_feat_dim) or (seq,B,feat) depending on your pipeline
-        """
 
         # -----------------------
         # Object graph processing
         # -----------------------
         x_feat = self.relu(self.x_bn1(self.x_fc(x[:, :self.input_dim])))
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
-        x_comb = torch.cat((x_feat, x_label), 1)  # (N, in_ch)
+        x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
-        # spatial graph
-        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x_comb.dtype).to(x_comb.device)
+        # Spatial graph
+        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x_comb, edge_index, edge_attr=edge_attr_spatial)
+            self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
         ))
 
-        # temporal graph
-        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x_comb.dtype).to(x_comb.device)
+        # Temporal graph
+        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x_comb, temporal_adj_list, edge_attr=edge_attr_temporal)
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
         ))
 
-        # concat + pooling
+        # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
         n_embed, edge_index, _, batch_vec, _, _ = self.pool(n_embed, edge_index, None, batch_vec)
-        g_embed = global_max_pool(n_embed, batch_vec)  # (B, pooled_dim)
+        g_embed = global_max_pool(n_embed, batch_vec)
 
         # -----------------------
-        # I3D feature processing (original Transformer)
+        # I3D feature processing (3 parallel branches)
         # -----------------------
-        img_feat_proj = self.img_fc(img_feat)  # (B, 256)
-        img_feat_seq = img_feat_proj.unsqueeze(0)   # (1, B, 256) - keep same shape behavior as earlier
-        img_feat_trans = self.temporal_transformer(img_feat_seq)  # (1, B, 256)
-        # ensure batch-first semantics if TransformerEncoder returns (seq, batch, feat) in some PyTorch versions
-        if img_feat_trans.shape[0] != img_feat_seq.shape[0]:
-            img_feat_trans = img_feat_trans.transpose(0, 1)
-        img_feat_trans = img_feat_trans.squeeze(0)  # (B, 256)
+        img_feat_proj = self.img_fc(img_feat).unsqueeze(0)
 
-        # -----------------------
-        # TFT parallel branch (or fallback)
-        # -----------------------
-        if self.use_tft:
-            # NOTE: proper TFT usage requires a TimeSeriesDataSet and appropriate inputs (time_idx, group ids, etc).
-            # Here we attempt a direct forward, but most setups need dataset wiring. If that fails we fallback.
-            try:
-                # try a direct call — often this will error if TFT expects full dataset structure
-                # shape expectations differ; attempt to run and catch exceptions
-                tft_out = self.tft(img_feat_proj.unsqueeze(1))  # try (B, 1, feat) -> (B, 1, embedding_dim)
-                if tft_out.dim() == 3:
-                    tft_out = tft_out.squeeze(1)  # (B, embedding_dim)
-                else:
-                    # unexpected shape -> fallback
-                    tft_out = self.tft_fallback(img_feat_proj)
-            except Exception:
-                tft_out = self.tft_fallback(img_feat_proj)
-        else:
-            # fallback: linear projection mapped to embedding_dim
-            tft_out = self.tft_fallback(img_feat_proj)  # (B, embedding_dim)
+        # Branch 1: Original Transformer
+        img_feat_orig = self.temporal_transformer(img_feat_proj).squeeze(0)
+
+        # Branch 2: Fusion Transformer
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj).squeeze(0)
+
+        # Branch 3: Perceiver Transformer
+        img_feat_perceiver = self.temporal_perceiver(img_feat_proj).squeeze(0)
 
         # -----------------------
         # Frame-level embeddings
         # -----------------------
-        # frame_embed_sg: from g_embed with video_adj_list (graph conv expects node-like inputs; we assume g_embed shaped per-batch)
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
-        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_trans, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
+
+        # Concatenate all features
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img,
+                                  img_feat_fusion, img_feat_perceiver), 1)
 
         # -----------------------
-        # Concatenate and classify
+        # Classification
         # -----------------------
-        # shapes: frame_embed_sg (B, D), frame_embed_img (B, D), tft_out (B, embedding_dim)
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, tft_out), dim=1)
-
         frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
         logits_mc = self.classify_fc2(frame_embed_)
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
