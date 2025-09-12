@@ -1858,11 +1858,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
 
         # -----------------------
-        # I3D features -> Transformers
+        # I3D features -> Transformer
         # -----------------------
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
-
-        # Original Transformer branch
         encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
@@ -1870,7 +1868,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
-        # Parallel Fusion Transformer branch
+        # Parallel TemporalFusionTransformer branch
         encoder_layer_fusion = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
@@ -1879,14 +1877,16 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
-        # NEW: Perceiver-style transformer branch
-        encoder_layer_perceiver = TransformerEncoderLayer(
-            d_model=embedding_dim * 2,
-            nhead=8,                # deeper attention
+        # -----------------------
+        # Additional One-directional LSTM branch for img_feat
+        # -----------------------
+        self.img_lstm = nn.LSTM(
+            input_size=img_feat_dim,
+            hidden_size=embedding_dim * 2,
+            num_layers=1,
             batch_first=True,
-            dropout=0.2
+            bidirectional=False
         )
-        self.temporal_perceiver = TransformerEncoder(encoder_layer_perceiver, num_layers=3)
 
         # -----------------------
         # Frame-level graph encoding
@@ -1910,8 +1910,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         concat_dim = (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim * 2) + \
-                     (embedding_dim * 2)   # <-- added perceiver branch
+                     (embedding_dim * 2) + \   # temporal fusion branch
+                     (embedding_dim * 2)       # LSTM branch
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -1946,18 +1946,21 @@ class SpaceTempGoG_detr_dad(nn.Module):
         g_embed = global_max_pool(n_embed, batch_vec)
 
         # -----------------------
-        # I3D feature processing (3 parallel branches)
+        # I3D feature processing
         # -----------------------
-        img_feat_proj = self.img_fc(img_feat).unsqueeze(0)
+        # Original Transformer
+        img_feat_orig = self.img_fc(img_feat).unsqueeze(0)
+        img_feat_orig = self.temporal_transformer(img_feat_orig)
+        img_feat_orig = img_feat_orig.squeeze(0)
 
-        # Branch 1: Original Transformer
-        img_feat_orig = self.temporal_transformer(img_feat_proj).squeeze(0)
+        # Parallel TemporalFusionTransformer
+        img_feat_fusion = self.img_fc(img_feat).unsqueeze(0)
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion)
+        img_feat_fusion = img_feat_fusion.squeeze(0)
 
-        # Branch 2: Fusion Transformer
-        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj).squeeze(0)
-
-        # Branch 3: Perceiver Transformer
-        img_feat_perceiver = self.temporal_perceiver(img_feat_proj).squeeze(0)
+        # Additional LSTM branch
+        lstm_out, (h_n, c_n) = self.img_lstm(img_feat)  # img_feat shape: [B, T, D]
+        img_feat_lstm = h_n[-1]  # final hidden state
 
         # -----------------------
         # Frame-level embeddings
@@ -1965,9 +1968,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
-        # Concatenate all features
-        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img,
-                                  img_feat_fusion, img_feat_perceiver), 1)
+        # Concatenate all features: Graph + Transformer + TFT + LSTM
+        frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion, img_feat_lstm), 1)
 
         # -----------------------
         # Classification
