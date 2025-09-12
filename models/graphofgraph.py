@@ -1908,9 +1908,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2 * self.num_heads) + 
-                     (embedding_dim // 2 * self.num_heads) + 
-                     (embedding_dim * 2) +    # temporal fusion branch
+        concat_dim = (embedding_dim // 2 * self.num_heads) + \
+                     (embedding_dim // 2 * self.num_heads) + \
+                     (embedding_dim * 2) + \   # temporal fusion branch
                      (embedding_dim * 2)       # LSTM branch
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
@@ -1979,6 +1979,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
