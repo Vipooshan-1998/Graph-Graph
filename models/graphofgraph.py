@@ -1818,7 +1818,7 @@ from torch_geometric.nn import (
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class SpaceTempGoG_detr_dad(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, lstm_hidden=128, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
         self.num_heads = 4
@@ -1877,12 +1877,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
-        # -----------------------
-        # Additional One-directional LSTM branch for img_feat
-        # -----------------------
+        # One-directional LSTM on img_feat
         self.img_lstm = nn.LSTM(
-            input_size=img_feat_dim,
-            hidden_size=embedding_dim * 2,
+            input_size=embedding_dim * 2,
+            hidden_size=lstm_hidden,
             num_layers=1,
             batch_first=True,
             bidirectional=False
@@ -1911,7 +1909,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         concat_dim = (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim * 2) + \
-                     (embedding_dim * 2)
+                     lstm_hidden  # include LSTM branch
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -1948,19 +1946,17 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # I3D feature processing
         # -----------------------
+        img_feat_trans = self.img_fc(img_feat)  # (B, 256)
+
         # Original Transformer
-        img_feat_orig = self.img_fc(img_feat).unsqueeze(0)
-        img_feat_orig = self.temporal_transformer(img_feat_orig)
-        img_feat_orig = img_feat_orig.squeeze(0)
+        img_feat_orig = self.temporal_transformer(img_feat_trans.unsqueeze(0)).squeeze(0)  # (B, 256)
 
         # Parallel TemporalFusionTransformer
-        img_feat_fusion = self.img_fc(img_feat).unsqueeze(0)
-        img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion)
-        img_feat_fusion = img_feat_fusion.squeeze(0)
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_trans.unsqueeze(0)).squeeze(0)  # (B, 256)
 
-        # Additional LSTM branch
-        lstm_out, (h_n, c_n) = self.img_lstm(img_feat)  # img_feat shape: [B, T, D]
-        img_feat_lstm = h_n[-1]  # final hidden state
+        # LSTM branch
+        img_feat_lstm, _ = self.img_lstm(img_feat_trans.unsqueeze(1))  # (B, 1, lstm_hidden)
+        img_feat_lstm = img_feat_lstm.squeeze(1)  # (B, lstm_hidden)
 
         # -----------------------
         # Frame-level embeddings
@@ -1968,7 +1964,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
         frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
-        # Concatenate all features: Graph + Transformer + TFT + LSTM
+        # Concatenate all features
         frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion, img_feat_lstm), 1)
 
         # -----------------------
@@ -1979,6 +1975,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
