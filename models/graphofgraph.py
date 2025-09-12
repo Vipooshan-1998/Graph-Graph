@@ -1910,8 +1910,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         concat_dim = (embedding_dim // 2 * self.num_heads) + \
                      (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim * 2) + \   # temporal fusion branch
-                     (embedding_dim * 2)       # LSTM branch
+                     (embedding_dim * 2) + \
+                     (embedding_dim * 2)
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
