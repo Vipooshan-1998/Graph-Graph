@@ -2405,28 +2405,18 @@ class SpaceTempGoG_detr_dota(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GPSConv, SAGPooling, global_max_pool, InstanceNorm
+from torch_geometric.nn import (
+    GPSConv,
+    SAGPooling,
+    global_max_pool,
+    InstanceNorm
+)
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-
-# A simple local MPNN for GPSConv
-class LocalMP(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.lin1 = nn.Linear(in_channels, out_channels)
-        self.relu = nn.ReLU()
-        self.lin2 = nn.Linear(out_channels, out_channels)
-
-    def forward(self, x, edge_index=None, edge_attr=None):
-        x = self.lin1(x)
-        x = self.relu(x)
-        x = self.lin2(x)
-        return x
 
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dad, self).__init__()
 
-        self.num_heads = 4
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
 
@@ -2439,27 +2429,24 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
         # -----------------------
-        # Spatial and temporal GPSConv
+        # Spatial and temporal graph GPSConv
         # -----------------------
-        in_channels = embedding_dim * 2 + embedding_dim // 2  # 320
         self.gc1_spatial = GPSConv(
-            channels=in_channels,
-            conv=LocalMP(in_channels, in_channels),
-            heads=self.num_heads,
-            norm='batch_norm'
+            in_channels=embedding_dim * 2 + embedding_dim // 2,  # 320
+            out_channels=embedding_dim // 2,                      # 64
+            edge_dim=1
         )
-        self.gc1_norm1 = InstanceNorm(in_channels)
+        self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
         self.gc1_temporal = GPSConv(
-            channels=in_channels,
-            conv=LocalMP(in_channels, in_channels),
-            heads=self.num_heads,
-            norm='batch_norm'
+            in_channels=embedding_dim * 2 + embedding_dim // 2,
+            out_channels=embedding_dim // 2,
+            edge_dim=1
         )
-        self.gc1_norm2 = InstanceNorm(in_channels)
+        self.gc1_norm2 = InstanceNorm(embedding_dim // 2)
 
         # Graph pooling
-        self.pool = SAGPooling(in_channels, ratio=0.8)
+        self.pool = SAGPooling(embedding_dim // 2, ratio=0.8)
 
         # -----------------------
         # I3D features -> Transformer
@@ -2482,32 +2469,26 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
         # -----------------------
-        # Frame-level graph encoding with GPSConv
+        # Frame-level graph encoding
         # -----------------------
-        # SG branch
-        sg_in_channels = in_channels  # same as pooled g_embed
         self.gc2_sg = GPSConv(
-            channels=sg_in_channels,
-            conv=LocalMP(sg_in_channels, sg_in_channels),
-            heads=self.num_heads,
-            norm='batch_norm'
+            in_channels=embedding_dim // 2,
+            out_channels=embedding_dim // 2
         )
-        self.gc2_norm1 = InstanceNorm(sg_in_channels)
+        self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
 
-        # I3D branch
-        i3d_in_channels = embedding_dim * 2
         self.gc2_i3d = GPSConv(
-            channels=i3d_in_channels,
-            conv=LocalMP(i3d_in_channels, i3d_in_channels),
-            heads=self.num_heads,
-            norm='batch_norm'
+            in_channels=embedding_dim * 2,
+            out_channels=embedding_dim // 2
         )
-        self.gc2_norm2 = InstanceNorm(i3d_in_channels)
+        self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = sg_in_channels + i3d_in_channels + (embedding_dim * 2)  # adding temporal fusion branch
+        concat_dim = (embedding_dim // 2) + \
+                     (embedding_dim // 2) + \
+                     (embedding_dim * 2)  # adding temporal fusion branch
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -2525,10 +2506,16 @@ class SpaceTempGoG_detr_dad(nn.Module):
         x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
         # Spatial graph
-        n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index)))
+        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
+        n_embed_spatial = self.relu(self.gc1_norm1(
+            self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
+        ))
 
         # Temporal graph
-        n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list)))
+        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
+        n_embed_temporal = self.relu(self.gc1_norm2(
+            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
+        ))
 
         # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
@@ -2538,10 +2525,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # I3D feature processing
         # -----------------------
+        # Original Transformer
         img_feat_orig = self.img_fc(img_feat).unsqueeze(0)
         img_feat_orig = self.temporal_transformer(img_feat_orig)
         img_feat_orig = img_feat_orig.squeeze(0)
 
+        # Parallel TemporalFusionTransformer
         img_feat_fusion = self.img_fc(img_feat).unsqueeze(0)
         img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion)
         img_feat_fusion = img_feat_fusion.squeeze(0)
@@ -2563,6 +2552,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
