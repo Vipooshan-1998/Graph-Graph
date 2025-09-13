@@ -2411,6 +2411,7 @@ from torch_geometric.nn import (
     InstanceNorm
 )
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from typing import Any, Dict, Optional
 
 # Assuming GPS model is already defined and imported
 # from previous GPS definition
