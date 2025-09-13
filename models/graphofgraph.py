@@ -2407,9 +2407,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import (
     GPSConv,
+    GCNConv,
     SAGPooling,
-    global_max_pool,
-    InstanceNorm
+    global_max_pool
 )
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
@@ -2432,21 +2432,23 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Spatial and temporal graph GPSConv
         # -----------------------
         self.gc1_spatial = GPSConv(
-            in_channels=embedding_dim * 2 + embedding_dim // 2,  # 320
-            out_channels=embedding_dim // 2,                      # 64
-            edge_dim=1
+            channels=embedding_dim * 2 + embedding_dim // 2,  # input feature size
+            conv=GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
+            heads=1,
+            act='relu',
+            norm='batch_norm'
         )
-        self.gc1_norm1 = InstanceNorm(embedding_dim // 2)
 
         self.gc1_temporal = GPSConv(
-            in_channels=embedding_dim * 2 + embedding_dim // 2,
-            out_channels=embedding_dim // 2,
-            edge_dim=1
+            channels=embedding_dim * 2 + embedding_dim // 2,
+            conv=GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
+            heads=1,
+            act='relu',
+            norm='batch_norm'
         )
-        self.gc1_norm2 = InstanceNorm(embedding_dim // 2)
 
         # Graph pooling
-        self.pool = SAGPooling(embedding_dim // 2, ratio=0.8)
+        self.pool = SAGPooling(embedding_dim // 2 * 2, ratio=0.8)  # concat of spatial+temporal
 
         # -----------------------
         # I3D features -> Transformer
@@ -2472,23 +2474,25 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Frame-level graph encoding
         # -----------------------
         self.gc2_sg = GPSConv(
-            in_channels=embedding_dim // 2,
-            out_channels=embedding_dim // 2
+            channels=embedding_dim // 2 * 2,  # output from spatial+temporal pooling
+            conv=GCNConv(embedding_dim // 2 * 2, embedding_dim // 2),
+            heads=1,
+            act='relu',
+            norm='batch_norm'
         )
-        self.gc2_norm1 = InstanceNorm(embedding_dim // 2)
 
         self.gc2_i3d = GPSConv(
-            in_channels=embedding_dim * 2,
-            out_channels=embedding_dim // 2
+            channels=embedding_dim * 2,
+            conv=GCNConv(embedding_dim * 2, embedding_dim // 2),
+            heads=1,
+            act='relu',
+            norm='batch_norm'
         )
-        self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2) + \
-                     (embedding_dim // 2) + \
-                     (embedding_dim * 2)  # adding temporal fusion branch
+        concat_dim = (embedding_dim // 2) + (embedding_dim // 2) + (embedding_dim * 2)  # sg + i3d + fusion
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -2506,16 +2510,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
         # Spatial graph
-        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
-        n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial)
-        ))
+        n_embed_spatial = self.gc1_spatial(x, edge_index)
 
         # Temporal graph
-        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
-        n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal)
-        ))
+        n_embed_temporal = self.gc1_temporal(x, temporal_adj_list)
 
         # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
@@ -2525,12 +2523,10 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # I3D feature processing
         # -----------------------
-        # Original Transformer
         img_feat_orig = self.img_fc(img_feat).unsqueeze(0)
         img_feat_orig = self.temporal_transformer(img_feat_orig)
         img_feat_orig = img_feat_orig.squeeze(0)
 
-        # Parallel TemporalFusionTransformer
         img_feat_fusion = self.img_fc(img_feat).unsqueeze(0)
         img_feat_fusion = self.temporal_fusion_transformer(img_feat_fusion)
         img_feat_fusion = img_feat_fusion.squeeze(0)
@@ -2538,8 +2534,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # Frame-level embeddings
         # -----------------------
-        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
-        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
+        frame_embed_sg = self.gc2_sg(g_embed, video_adj_list)
+        frame_embed_img = self.gc2_i3d(img_feat_orig, video_adj_list)
 
         # Concatenate all features
         frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion), 1)
@@ -2552,6 +2548,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
