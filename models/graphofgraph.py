@@ -2428,20 +2428,23 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.obj_l_fc = nn.Linear(300, embedding_dim // 2)         # 300 -> 64
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
+        # Project concatenated features to GPSConv input/output dimension
+        self.x_proj = nn.Linear(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2)
+
         # -----------------------
         # Spatial and temporal graph GPSConv
         # -----------------------
         self.gc1_spatial = GPSConv(
-            channels=embedding_dim * 2 + embedding_dim // 2,  # input feature size
-            conv=GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
+            channels=embedding_dim // 2,
+            conv=GCNConv(embedding_dim // 2, embedding_dim // 2),
             heads=1,
             act='relu',
             norm='batch_norm'
         )
 
         self.gc1_temporal = GPSConv(
-            channels=embedding_dim * 2 + embedding_dim // 2,
-            conv=GCNConv(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
+            channels=embedding_dim // 2,
+            conv=GCNConv(embedding_dim // 2, embedding_dim // 2),
             heads=1,
             act='relu',
             norm='batch_norm'
@@ -2509,6 +2512,9 @@ class SpaceTempGoG_detr_dad(nn.Module):
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
         x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
+        # Project to GPSConv input/output dimension
+        x = self.x_proj(x)  # (N, embedding_dim//2)
+
         # Spatial graph
         n_embed_spatial = self.gc1_spatial(x, edge_index)
 
@@ -2548,6 +2554,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
