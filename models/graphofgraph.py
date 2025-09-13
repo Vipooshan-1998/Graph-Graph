@@ -2405,23 +2405,22 @@ class SpaceTempGoG_detr_dota(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import (
-    GPSConv,
-    SAGPooling,
-    global_max_pool,
-    InstanceNorm,
-    MessagePassing
-)
+from torch_geometric.nn import GPSConv, SAGPooling, global_max_pool, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
-# Dummy local MPNN for GPSConv (can be replaced with any MessagePassing layer)
-class LocalMP(MessagePassing):
+# A simple local MPNN for GPSConv
+class LocalMP(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super().__init__(aggr='add')
-        self.lin = nn.Linear(in_channels, out_channels)
+        super().__init__()
+        self.lin1 = nn.Linear(in_channels, out_channels)
+        self.relu = nn.ReLU()
+        self.lin2 = nn.Linear(out_channels, out_channels)
 
-    def forward(self, x, edge_index):
-        return self.lin(x)
+    def forward(self, x, edge_index=None, edge_attr=None):
+        x = self.lin1(x)
+        x = self.relu(x)
+        x = self.lin2(x)
+        return x
 
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
@@ -2440,26 +2439,27 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
         # -----------------------
-        # Spatial and temporal graph GPSConv
+        # Spatial and temporal GPSConv
         # -----------------------
+        in_channels = embedding_dim * 2 + embedding_dim // 2  # 320
         self.gc1_spatial = GPSConv(
-            channels=embedding_dim * 2 + embedding_dim // 2,
-            conv=LocalMP(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
+            channels=in_channels,
+            conv=LocalMP(in_channels, in_channels),
             heads=self.num_heads,
             norm='batch_norm'
         )
-        self.gc1_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.gc1_norm1 = InstanceNorm(in_channels)
 
         self.gc1_temporal = GPSConv(
-            channels=embedding_dim * 2 + embedding_dim // 2,
-            conv=LocalMP(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
+            channels=in_channels,
+            conv=LocalMP(in_channels, in_channels),
             heads=self.num_heads,
             norm='batch_norm'
         )
-        self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.gc1_norm2 = InstanceNorm(in_channels)
 
         # Graph pooling
-        self.pool = SAGPooling(embedding_dim * self.num_heads, ratio=0.8)
+        self.pool = SAGPooling(in_channels, ratio=0.8)
 
         # -----------------------
         # I3D features -> Transformer
@@ -2472,6 +2472,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
+        # Parallel TemporalFusionTransformer branch
         encoder_layer_fusion = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
@@ -2481,30 +2482,32 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
         # -----------------------
-        # Frame-level GPSConv
+        # Frame-level graph encoding with GPSConv
         # -----------------------
+        # SG branch
+        sg_in_channels = in_channels  # same as pooled g_embed
         self.gc2_sg = GPSConv(
-            channels=embedding_dim // 2 * self.num_heads,
-            conv=LocalMP(embedding_dim // 2 * self.num_heads, embedding_dim // 2),
+            channels=sg_in_channels,
+            conv=LocalMP(sg_in_channels, sg_in_channels),
             heads=self.num_heads,
             norm='batch_norm'
         )
-        self.gc2_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.gc2_norm1 = InstanceNorm(sg_in_channels)
 
+        # I3D branch
+        i3d_in_channels = embedding_dim * 2
         self.gc2_i3d = GPSConv(
-            channels=embedding_dim * 2,
-            conv=LocalMP(embedding_dim * 2, embedding_dim // 2),
+            channels=i3d_in_channels,
+            conv=LocalMP(i3d_in_channels, i3d_in_channels),
             heads=self.num_heads,
             norm='batch_norm'
         )
-        self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.gc2_norm2 = InstanceNorm(i3d_in_channels)
 
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim // 2 * self.num_heads) + \
-                     (embedding_dim * 2)
+        concat_dim = sg_in_channels + i3d_in_channels + (embedding_dim * 2)  # adding temporal fusion branch
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -2519,19 +2522,13 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         x_feat = self.relu(self.x_bn1(self.x_fc(x[:, :self.input_dim])))
         x_label = self.relu(self.obj_l_bn1(self.obj_l_fc(x[:, self.input_dim:])))
-        x = torch.cat((x_feat, x_label), 1)
+        x = torch.cat((x_feat, x_label), 1)  # (N, 320)
 
         # Spatial graph
-        edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
-        n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index)
-        ))
+        n_embed_spatial = self.relu(self.gc1_norm1(self.gc1_spatial(x, edge_index)))
 
         # Temporal graph
-        edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
-        n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list)
-        ))
+        n_embed_temporal = self.relu(self.gc1_norm2(self.gc1_temporal(x, temporal_adj_list)))
 
         # Concat + pooling
         n_embed = torch.cat((n_embed_spatial, n_embed_temporal), 1)
@@ -2566,6 +2563,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
