@@ -2407,12 +2407,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import (
     GPSConv,
-    GINEConv,
     SAGPooling,
     global_max_pool,
-    InstanceNorm
+    InstanceNorm,
+    MessagePassing
 )
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+# Dummy local MPNN for GPSConv (can be replaced with any MessagePassing layer)
+class LocalMP(MessagePassing):
+    def __init__(self, in_channels, out_channels):
+        super().__init__(aggr='add')
+        self.lin = nn.Linear(in_channels, out_channels)
+
+    def forward(self, x, edge_index):
+        return self.lin(x)
 
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
@@ -2431,37 +2440,21 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.obj_l_bn1 = nn.BatchNorm1d(embedding_dim // 2)
 
         # -----------------------
-        # Spatial and temporal GPSConv layers
+        # Spatial and temporal graph GPSConv
         # -----------------------
-        local_mp_spatial = GINEConv(nn.Sequential(
-            nn.Linear(embedding_dim*2 + embedding_dim//2, embedding_dim//2),
-            nn.ReLU(),
-            nn.Linear(embedding_dim//2, embedding_dim//2)
-        ))
-
         self.gc1_spatial = GPSConv(
-            channels=embedding_dim//2,
-            conv=local_mp_spatial,
+            channels=embedding_dim * 2 + embedding_dim // 2,
+            conv=LocalMP(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
             heads=self.num_heads,
-            norm='batch_norm',
-            attn_type='multihead',
-            attn_kwargs={'edge_dim': 1}
+            norm='batch_norm'
         )
         self.gc1_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        local_mp_temporal = GINEConv(nn.Sequential(
-            nn.Linear(embedding_dim*2 + embedding_dim//2, embedding_dim//2),
-            nn.ReLU(),
-            nn.Linear(embedding_dim//2, embedding_dim//2)
-        ))
-
         self.gc1_temporal = GPSConv(
-            channels=embedding_dim//2,
-            conv=local_mp_temporal,
+            channels=embedding_dim * 2 + embedding_dim // 2,
+            conv=LocalMP(embedding_dim * 2 + embedding_dim // 2, embedding_dim // 2),
             heads=self.num_heads,
-            norm='batch_norm',
-            attn_type='multihead',
-            attn_kwargs={'edge_dim': 1}
+            norm='batch_norm'
         )
         self.gc1_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
@@ -2471,7 +2464,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # I3D features -> Transformer
         # -----------------------
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
         encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
@@ -2488,35 +2481,21 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
         # -----------------------
-        # Frame-level GPSConv encoding
+        # Frame-level GPSConv
         # -----------------------
-        local_mp_sg = GINEConv(nn.Sequential(
-            nn.Linear(embedding_dim // 2 * self.num_heads, embedding_dim // 2),
-            nn.ReLU(),
-            nn.Linear(embedding_dim // 2, embedding_dim // 2)
-        ))
-
         self.gc2_sg = GPSConv(
-            channels=embedding_dim // 2,
-            conv=local_mp_sg,
+            channels=embedding_dim // 2 * self.num_heads,
+            conv=LocalMP(embedding_dim // 2 * self.num_heads, embedding_dim // 2),
             heads=self.num_heads,
-            norm='batch_norm',
-            attn_type='multihead'
+            norm='batch_norm'
         )
         self.gc2_norm1 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        local_mp_i3d = GINEConv(nn.Sequential(
-            nn.Linear(embedding_dim * 2, embedding_dim // 2),
-            nn.ReLU(),
-            nn.Linear(embedding_dim // 2, embedding_dim // 2)
-        ))
-
         self.gc2_i3d = GPSConv(
-            channels=embedding_dim // 2,
-            conv=local_mp_i3d,
+            channels=embedding_dim * 2,
+            conv=LocalMP(embedding_dim * 2, embedding_dim // 2),
             heads=self.num_heads,
-            norm='batch_norm',
-            attn_type='multihead'
+            norm='batch_norm'
         )
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
@@ -2545,13 +2524,13 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # Spatial graph
         edge_attr_spatial = edge_embeddings[:, -1].unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_spatial = self.relu(self.gc1_norm1(
-            self.gc1_spatial(x, edge_index, edge_attr=edge_attr_spatial, batch=batch_vec)
+            self.gc1_spatial(x, edge_index)
         ))
 
         # Temporal graph
         edge_attr_temporal = temporal_edge_w.unsqueeze(1).to(x.dtype).to(x.device)
         n_embed_temporal = self.relu(self.gc1_norm2(
-            self.gc1_temporal(x, temporal_adj_list, edge_attr=edge_attr_temporal, batch=batch_vec)
+            self.gc1_temporal(x, temporal_adj_list)
         ))
 
         # Concat + pooling
@@ -2573,8 +2552,8 @@ class SpaceTempGoG_detr_dad(nn.Module):
         # -----------------------
         # Frame-level embeddings
         # -----------------------
-        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list, batch=batch_vec)))
-        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list, batch=batch_vec)))
+        frame_embed_sg = self.relu(self.gc2_norm1(self.gc2_sg(g_embed, video_adj_list)))
+        frame_embed_img = self.relu(self.gc2_norm2(self.gc2_i3d(img_feat_orig, video_adj_list)))
 
         # Concatenate all features
         frame_embed_ = torch.cat((frame_embed_sg, frame_embed_img, img_feat_fusion), 1)
