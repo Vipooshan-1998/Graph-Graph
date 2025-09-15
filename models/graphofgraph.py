@@ -2623,8 +2623,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.img_attn = MultiheadAttention(
             embed_dim=embedding_dim*2,
             num_heads=4,
-            batch_first=True,
-            is_causal=True
+            batch_first=True
         )
 
         # -----------------------
@@ -2688,7 +2687,8 @@ class SpaceTempGoG_detr_dota(nn.Module):
         img_feat_attn, _ = self.img_attn(
             img_feat_proj.unsqueeze(1),
             img_feat_proj.unsqueeze(1),
-            img_feat_proj.unsqueeze(1)
+            img_feat_proj.unsqueeze(1),
+            is_causal=True   # <-- enforce causal attention here
         )
         img_feat_attn = img_feat_attn.squeeze(1)
 
