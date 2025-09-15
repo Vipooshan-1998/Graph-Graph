@@ -2615,7 +2615,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
             nhead=4,
             batch_first=True,
             dropout=0.1,
-            is_causal=True  # Causal
+            # is_causal=True  # Causal
         )
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
