@@ -2580,12 +2580,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
 #         return logits_mc, probs_mc
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import TransformerConv, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
-
 
 class SpaceTempGoG_detr_dota(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
@@ -2597,15 +2597,16 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # -----------------------
         # Image feature projection
         # -----------------------
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # Project to embedding
 
         # -----------------------
-        # TransformerEncoder branches
+        # TransformerEncoder branches (causal)
         # -----------------------
         encoder_layer_orig = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
-            batch_first=True
+            batch_first=True,
+            is_causal=True  # Prevents attention to future frames
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer_orig, num_layers=2)
 
@@ -2613,14 +2614,20 @@ class SpaceTempGoG_detr_dota(nn.Module):
             d_model=embedding_dim * 2,
             nhead=4,
             batch_first=True,
-            dropout=0.1
+            dropout=0.1,
+            is_causal=True  # Causal
         )
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
         # -----------------------
-        # Multihead attention branch
+        # Multihead attention branch (causal)
         # -----------------------
-        self.img_attn = MultiheadAttention(embed_dim=embedding_dim * 2, num_heads=4, batch_first=True)
+        self.img_attn = MultiheadAttention(
+            embed_dim=embedding_dim * 2,
+            num_heads=4,
+            batch_first=True,
+            is_causal=True  # Causal attention
+        )
 
         # -----------------------
         # Graph TransformerConv branches
@@ -2648,7 +2655,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2 * self.num_heads) * 3  # three TransformerConv branches
+        concat_dim = (embedding_dim // 2 * self.num_heads) * 3
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -2661,15 +2668,17 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # -----------------------
         # Image feature processing
         # -----------------------
-        img_feat_proj = self.img_fc(img_feat)  # (B, 256)
+        img_feat_proj = self.img_fc(img_feat)  # (B, embedding_dim*2)
 
-        # Original Transformer
+        # -----------------------
+        # Temporal Transformers (causal)
+        # -----------------------
         img_feat_orig = self.temporal_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
-
-        # Parallel TemporalFusionTransformer
         img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
 
-        # Multihead attention branch
+        # -----------------------
+        # Multihead attention branch (causal)
+        # -----------------------
         img_feat_attn, _ = self.img_attn(
             img_feat_proj.unsqueeze(1),
             img_feat_proj.unsqueeze(1),
@@ -2697,7 +2706,6 @@ class SpaceTempGoG_detr_dota(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
-
 
 
 
