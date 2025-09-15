@@ -2597,25 +2597,23 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # -----------------------
         # Image feature projection
         # -----------------------
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # Project to embedding
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
 
         # -----------------------
-        # TransformerEncoder branches (causal)
+        # TransformerEncoder layers
         # -----------------------
         encoder_layer_orig = TransformerEncoderLayer(
-            d_model=embedding_dim * 2,
+            d_model=embedding_dim*2,
             nhead=4,
-            batch_first=True,
-            is_causal=True  # Prevents attention to future frames
+            batch_first=True
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer_orig, num_layers=2)
 
         encoder_layer_fusion = TransformerEncoderLayer(
-            d_model=embedding_dim * 2,
+            d_model=embedding_dim*2,
             nhead=4,
             batch_first=True,
-            dropout=0.1,
-            # is_causal=True  # Causal
+            dropout=0.1
         )
         self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
@@ -2623,39 +2621,39 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # Multihead attention branch (causal)
         # -----------------------
         self.img_attn = MultiheadAttention(
-            embed_dim=embedding_dim * 2,
+            embed_dim=embedding_dim*2,
             num_heads=4,
             batch_first=True,
-            is_causal=True  # Causal attention
+            is_causal=True
         )
 
         # -----------------------
         # Graph TransformerConv branches
         # -----------------------
         self.gc_orig = TransformerConv(
-            in_channels=embedding_dim * 2,
-            out_channels=embedding_dim // 2,
+            in_channels=embedding_dim*2,
+            out_channels=embedding_dim//2,
             heads=self.num_heads
         )
         self.gc_fusion = TransformerConv(
-            in_channels=embedding_dim * 2,
-            out_channels=embedding_dim // 2,
+            in_channels=embedding_dim*2,
+            out_channels=embedding_dim//2,
             heads=self.num_heads
         )
         self.gc_attn = TransformerConv(
-            in_channels=embedding_dim * 2,
-            out_channels=embedding_dim // 2,
+            in_channels=embedding_dim*2,
+            out_channels=embedding_dim//2,
             heads=self.num_heads
         )
 
-        self.norm_orig = InstanceNorm(embedding_dim // 2 * self.num_heads)
-        self.norm_fusion = InstanceNorm(embedding_dim // 2 * self.num_heads)
-        self.norm_attn = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.norm_orig = InstanceNorm(embedding_dim//2 * self.num_heads)
+        self.norm_fusion = InstanceNorm(embedding_dim//2 * self.num_heads)
+        self.norm_attn = InstanceNorm(embedding_dim//2 * self.num_heads)
 
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2 * self.num_heads) * 3
+        concat_dim = (embedding_dim//2 * self.num_heads) * 3
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
@@ -2666,16 +2664,23 @@ class SpaceTempGoG_detr_dota(nn.Module):
                 temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
 
         # -----------------------
-        # Image feature processing
+        # Image feature projection
         # -----------------------
         print("img_feat shape:", img_feat.shape)
-        img_feat_proj = self.img_fc(img_feat)  # (B, embedding_dim*2)
+        img_feat_proj = self.img_fc(img_feat)  # (seq_len, embedding_dim*2)
 
         # -----------------------
         # Temporal Transformers (causal)
         # -----------------------
-        img_feat_orig = self.temporal_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
-        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
+        img_feat_orig = self.temporal_transformer(
+            img_feat_proj.unsqueeze(0),
+            is_causal=True
+        ).squeeze(0)
+
+        img_feat_fusion = self.temporal_fusion_transformer(
+            img_feat_proj.unsqueeze(0),
+            is_causal=True
+        ).squeeze(0)
 
         # -----------------------
         # Multihead attention branch (causal)
@@ -2707,6 +2712,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
