@@ -2801,7 +2801,8 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, img_feat, video_adj_list):
+    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
+                temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
         """
         img_feat: (seq_len, img_feat_dim)
         video_adj_list: graph edges for TransformerConv
