@@ -2665,7 +2665,6 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # -----------------------
         # Image feature projection
         # -----------------------
-        print("img_feat shape:", img_feat.shape)
         img_feat_proj = self.img_fc(img_feat)  # (seq_len, embedding_dim*2)
 
         # -----------------------
