@@ -2739,9 +2739,9 @@ import torch.nn.functional as F
 from torch_geometric.nn import TransformerConv, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 
-class SpaceTempGoG_detr_dota_single(nn.Module):
+class SpaceTempGoG_detr_dota(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
-        super(SpaceTempGoG_detr_dota_single, self).__init__()
+        super(SpaceTempGoG_detr_dota, self).__init__()
 
         self.embedding_dim = embedding_dim
         self.num_heads = 4
