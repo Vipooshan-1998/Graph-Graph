@@ -2757,8 +2757,7 @@ class SpaceTempGoG_detr_dota_single(nn.Module):
         encoder_layer = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=self.num_heads,
-            batch_first=True,
-            dropout=0.1
+            batch_first=True
         )
         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
