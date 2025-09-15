@@ -2739,9 +2739,9 @@ import torch.nn.functional as F
 from torch_geometric.nn import TransformerConv, InstanceNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 
-class SpaceTempGoG_detr_dota(nn.Module):
+class SpaceTempGoG_detr_dota_single(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
-        super(SpaceTempGoG_detr_dota, self).__init__()
+        super(SpaceTempGoG_detr_dota_single, self).__init__()
 
         self.embedding_dim = embedding_dim
         self.num_heads = 4
@@ -2752,29 +2752,27 @@ class SpaceTempGoG_detr_dota(nn.Module):
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
 
         # -----------------------
-        # TransformerEncoder layers
+        # Single causal TransformerEncoder
         # -----------------------
-        encoder_layer_orig = TransformerEncoderLayer(
-            d_model=embedding_dim*2,
-            nhead=4,
-            batch_first=True
-        )
-        self.temporal_transformer = TransformerEncoder(encoder_layer_orig, num_layers=2)
-
-        encoder_layer_fusion = TransformerEncoderLayer(
-            d_model=embedding_dim*2,
-            nhead=4,
+        encoder_layer = TransformerEncoderLayer(
+            d_model=embedding_dim * 2,
+            nhead=self.num_heads,
             batch_first=True,
             dropout=0.1
         )
-        self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
+        self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
 
         # -----------------------
-        # Multihead attention branch (causal)
+        # Optional fusion layer to capture complementary patterns
+        # -----------------------
+        self.fusion_fc = nn.Linear(embedding_dim * 2, embedding_dim * 2)
+
+        # -----------------------
+        # Multihead attention branch (self-attention)
         # -----------------------
         self.img_attn = MultiheadAttention(
-            embed_dim=embedding_dim*2,
-            num_heads=4,
+            embed_dim=embedding_dim * 2,
+            num_heads=self.num_heads,
             batch_first=True
         )
 
@@ -2782,89 +2780,76 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # Graph TransformerConv branches
         # -----------------------
         self.gc_orig = TransformerConv(
-            in_channels=embedding_dim*2,
-            out_channels=embedding_dim//2,
-            heads=self.num_heads
-        )
-        self.gc_fusion = TransformerConv(
-            in_channels=embedding_dim*2,
-            out_channels=embedding_dim//2,
+            in_channels=embedding_dim * 2,
+            out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
         self.gc_attn = TransformerConv(
-            in_channels=embedding_dim*2,
-            out_channels=embedding_dim//2,
+            in_channels=embedding_dim * 2,
+            out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
-
-        self.norm_orig = InstanceNorm(embedding_dim//2 * self.num_heads)
-        self.norm_fusion = InstanceNorm(embedding_dim//2 * self.num_heads)
-        self.norm_attn = InstanceNorm(embedding_dim//2 * self.num_heads)
+        self.norm_orig = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.norm_attn = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim//2 * self.num_heads) * 3
+        concat_dim = (embedding_dim // 2 * self.num_heads) * 2 + embedding_dim * 2
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
-                temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
+    def forward(self, img_feat, video_adj_list):
+        """
+        img_feat: (seq_len, img_feat_dim)
+        video_adj_list: graph edges for TransformerConv
+        """
 
         # -----------------------
         # Image feature projection
         # -----------------------
-        img_feat_proj = self.img_fc(img_feat)  # (seq_len, embedding_dim*2)
+        img_feat_proj = self.img_fc(img_feat).unsqueeze(0)  # (1, seq_len, d_model)
 
         # -----------------------
-        # Temporal Transformers (causal)
+        # Single causal Transformer
         # -----------------------
-        img_feat_orig = self.temporal_transformer(
-            img_feat_proj.unsqueeze(0),
-            is_causal=True
-        ).squeeze(0)
-
-        img_feat_fusion = self.temporal_fusion_transformer(
-            img_feat_proj.unsqueeze(0),
-            is_causal=True
-        ).squeeze(0)
+        img_feat_trans = self.temporal_transformer(img_feat_proj, is_causal=True)
+        img_feat_trans = self.fusion_fc(img_feat_trans.squeeze(0))  # fusion after transformer
 
         # -----------------------
-        # Multihead attention branch (causal)
+        # Multihead attention branch
         # -----------------------
-        print("img_feat_proj.unsqueeze(1).shape", img_feat_proj.unsqueeze(1).shape)
-        print("img_feat_proj.unsqueeze(0).shape", img_feat_proj.unsqueeze(0).shape)
         img_feat_attn, _ = self.img_attn(
-            img_feat_proj.unsqueeze(1),
-            img_feat_proj.unsqueeze(1),
-            img_feat_proj.unsqueeze(1),
-            is_causal=True   # <-- enforce causal attention here
+            img_feat_trans.unsqueeze(0),  # Q
+            img_feat_trans.unsqueeze(0),  # K
+            img_feat_trans.unsqueeze(0),  # V
+            is_causal=True
         )
-        img_feat_attn = img_feat_attn.squeeze(1)
+        img_feat_attn = img_feat_attn.squeeze(0)
 
         # -----------------------
         # Graph TransformerConv
         # -----------------------
-        frame_embed_orig = self.relu(self.norm_orig(self.gc_orig(img_feat_orig, video_adj_list)))
-        frame_embed_fusion = self.relu(self.norm_fusion(self.gc_fusion(img_feat_fusion, video_adj_list)))
+        frame_embed_orig = self.relu(self.norm_orig(self.gc_orig(img_feat_trans, video_adj_list)))
         frame_embed_attn = self.relu(self.norm_attn(self.gc_attn(img_feat_attn, video_adj_list)))
 
         # -----------------------
         # Concatenate all features
         # -----------------------
-        frame_embed_ = torch.cat((frame_embed_orig, frame_embed_fusion, frame_embed_attn), dim=1)
+        frame_embed_ = torch.cat((frame_embed_orig, frame_embed_attn, img_feat_trans), dim=1)
 
         # -----------------------
         # Classification
         # -----------------------
         frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
-        logits_mc = self.classify_fc2(frame_embed_)
-        probs_mc = self.softmax(logits_mc)
+        logits = self.classify_fc2(frame_embed_)
+        probs = self.softmax(logits)
 
-        return logits_mc, probs_mc
+        return logits, probs
+
 
 
 
