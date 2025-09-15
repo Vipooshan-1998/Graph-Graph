@@ -2684,6 +2684,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # Multihead attention branch (causal)
         # -----------------------
         print("img_feat_proj.unsqueeze(1).shape", img_feat_proj.unsqueeze(1).shape)
+        print("img_feat_proj.unsqueeze(0).shape", img_feat_proj.unsqueeze(0).shape)
         img_feat_attn, _ = self.img_attn(
             img_feat_proj.unsqueeze(1),
             img_feat_proj.unsqueeze(1),
