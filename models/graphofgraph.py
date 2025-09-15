@@ -2583,144 +2583,111 @@ class SpaceTempGoG_detr_dad(nn.Module):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import TransformerConv, InstanceNorm, global_mean_pool
-from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer
-import torch
-import torch.nn as nn
-from torch_geometric.nn import (
-    TransformerConv,
-    InstanceNorm
-)
+from torch_geometric.nn import TransformerConv, InstanceNorm
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
 
 
 class SpaceTempGoG_detr_dota(nn.Module):
-    def __init__(self, img_feat_dim=2048, embedding_dim=128, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dota, self).__init__()
 
-        self.num_heads = 4
         self.embedding_dim = embedding_dim
+        self.num_heads = 4
 
         # -----------------------
-        # I3D features -> Transformer Encoder
+        # Image feature projection
         # -----------------------
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)  # 2048 -> 256
 
-        encoder_layer = nn.TransformerEncoderLayer(
+        # -----------------------
+        # TransformerEncoder branches
+        # -----------------------
+        encoder_layer_orig = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
             batch_first=True
         )
-        self.temporal_transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
+        self.temporal_transformer = TransformerEncoder(encoder_layer_orig, num_layers=2)
 
-        encoder_layer_fusion = nn.TransformerEncoderLayer(
+        encoder_layer_fusion = TransformerEncoderLayer(
             d_model=embedding_dim * 2,
             nhead=4,
             batch_first=True,
             dropout=0.1
         )
-        self.temporal_fusion_transformer = nn.TransformerEncoder(encoder_layer_fusion, num_layers=2)
+        self.temporal_fusion_transformer = TransformerEncoder(encoder_layer_fusion, num_layers=2)
 
         # -----------------------
-        # LSTM branch
+        # Multihead attention branch
         # -----------------------
-        self.lstm = nn.LSTM(
-            input_size=embedding_dim * 2,
-            hidden_size=embedding_dim,
-            num_layers=1,
-            batch_first=True,
-            bidirectional=True
-        )
+        self.img_attn = MultiheadAttention(embed_dim=embedding_dim * 2, num_heads=4, batch_first=True)
 
         # -----------------------
-        # Transformer Decoder
+        # Graph TransformerConv branches
         # -----------------------
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=embedding_dim * 2,
-            nhead=4,
-            batch_first=True
-        )
-        self.temporal_decoder = nn.TransformerDecoder(decoder_layer, num_layers=2)
-
-        # -----------------------
-        # Graph convolutions
-        # -----------------------
-        self.gc2_i3d_orig = TransformerConv(
+        self.gc_orig = TransformerConv(
             in_channels=embedding_dim * 2,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
-        self.gc2_norm_orig = InstanceNorm(embedding_dim // 2 * self.num_heads)
-
-        self.gc2_i3d_fusion = TransformerConv(
+        self.gc_fusion = TransformerConv(
             in_channels=embedding_dim * 2,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
-        self.gc2_norm_fusion = InstanceNorm(embedding_dim // 2 * self.num_heads)
-
-        self.gc2_i3d_decoder = TransformerConv(
+        self.gc_attn = TransformerConv(
             in_channels=embedding_dim * 2,
             out_channels=embedding_dim // 2,
             heads=self.num_heads
         )
-        self.gc2_norm_decoder = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
-        self.gc2_i3d_lstm = TransformerConv(
-            in_channels=embedding_dim * 2,
-            out_channels=embedding_dim // 2,
-            heads=self.num_heads
-        )
-        self.gc2_norm_lstm = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.norm_orig = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.norm_fusion = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.norm_attn = InstanceNorm(embedding_dim // 2 * self.num_heads)
 
         # -----------------------
         # Classification
         # -----------------------
-        concat_dim = (embedding_dim // 2 * self.num_heads) * 4
+        concat_dim = (embedding_dim // 2 * self.num_heads) * 3  # three TransformerConv branches
         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
 
         self.relu = nn.LeakyReLU(0.2)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, edge_index, img_feat, video_adj_list,
-                edge_embeddings=None, temporal_adj_list=None,
-                temporal_edge_w=None, batch_vec=None):
+    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
+                temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
 
         # -----------------------
-        # I3D feature processing
+        # Image feature processing
         # -----------------------
-        img_proj = self.img_fc(img_feat)  # (frames, D)
+        img_feat_proj = self.img_fc(img_feat)  # (B, 256)
 
-        # Encoder outputs
-        img_feat_orig = self.temporal_transformer(img_proj.unsqueeze(0)).squeeze(0)  # (frames, D)
-        img_feat_fusion = self.temporal_fusion_transformer(img_proj.unsqueeze(0)).squeeze(0)
+        # Original Transformer
+        img_feat_orig = self.temporal_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
 
-        # LSTM branch
-        lstm_out, _ = self.lstm(img_proj.unsqueeze(0))  # (1, frames, 2*embedding_dim)
-        img_feat_lstm = lstm_out.squeeze(0)  # (frames, D)
+        # Parallel TemporalFusionTransformer
+        img_feat_fusion = self.temporal_fusion_transformer(img_feat_proj.unsqueeze(0)).squeeze(0)
 
-        # Decoder branch
-        tgt = torch.zeros_like(img_proj.unsqueeze(0))  # same shape as input
-        img_feat_decoder = self.temporal_decoder(tgt, img_proj.unsqueeze(0)).squeeze(0)
-
-        # -----------------------
-        # Graph convolution branches
-        # -----------------------
-        frame_embed_orig = self.relu(self.gc2_norm_orig(self.gc2_i3d_orig(img_feat_orig, video_adj_list)))
-        frame_embed_fusion = self.relu(self.gc2_norm_fusion(self.gc2_i3d_fusion(img_feat_fusion, video_adj_list)))
-        frame_embed_decoder = self.relu(self.gc2_norm_decoder(self.gc2_i3d_decoder(img_feat_decoder, video_adj_list)))
-        frame_embed_lstm = self.relu(self.gc2_norm_lstm(self.gc2_i3d_lstm(img_feat_lstm, video_adj_list)))
+        # Multihead attention branch
+        img_feat_attn, _ = self.img_attn(
+            img_feat_proj.unsqueeze(1),
+            img_feat_proj.unsqueeze(1),
+            img_feat_proj.unsqueeze(1)
+        )
+        img_feat_attn = img_feat_attn.squeeze(1)
 
         # -----------------------
-        # Sequence-level pooling instead of global_mean_pool
+        # Graph TransformerConv
         # -----------------------
-        pooled_orig = frame_embed_orig.mean(dim=0, keepdim=True)
-        pooled_fusion = frame_embed_fusion.mean(dim=0, keepdim=True)
-        pooled_decoder = frame_embed_decoder.mean(dim=0, keepdim=True)
-        pooled_lstm = frame_embed_lstm.mean(dim=0, keepdim=True)
+        frame_embed_orig = self.relu(self.norm_orig(self.gc_orig(img_feat_orig, video_adj_list)))
+        frame_embed_fusion = self.relu(self.norm_fusion(self.gc_fusion(img_feat_fusion, video_adj_list)))
+        frame_embed_attn = self.relu(self.norm_attn(self.gc_attn(img_feat_attn, video_adj_list)))
 
-        # Concatenate pooled features
-        frame_embed_ = torch.cat((pooled_orig, pooled_fusion, pooled_decoder, pooled_lstm), 1)
+        # -----------------------
+        # Concatenate all features
+        # -----------------------
+        frame_embed_ = torch.cat((frame_embed_orig, frame_embed_fusion, frame_embed_attn), dim=1)
 
         # -----------------------
         # Classification
@@ -2730,6 +2697,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
