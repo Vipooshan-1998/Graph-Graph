@@ -2888,9 +2888,12 @@ class SpaceTempGoG_detr_dota(nn.Module):
             self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list))
         )
 
-        # Ensure batch_vec has the right shape
+        # Ensure batch_vec matches the number of nodes
         if batch_vec is not None:
-            batch_vec = batch_vec.view(-1)  # flatten to [num_nodes]
+            batch_vec = batch_vec.view(-1)
+            if batch_vec.numel() != frame_embed_img.size(0):
+                repeat_factor = frame_embed_img.size(0) // batch_vec.size(0)
+                batch_vec = batch_vec.repeat_interleave(repeat_factor).view(-1)
 
         # Global pooling across batch
         frame_embed_img = global_max_pool(frame_embed_img, batch_vec)
@@ -2901,6 +2904,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
