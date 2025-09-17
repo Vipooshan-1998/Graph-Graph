@@ -2835,11 +2835,7 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
 import torch
 import torch.nn as nn
-from torch_geometric.nn import (
-    GATv2Conv, 
-    InstanceNorm,
-    global_max_pool
-)
+from torch_geometric.nn import GATv2Conv, InstanceNorm
 
 class SpaceTempGoG_detr_dota(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
@@ -2888,22 +2884,13 @@ class SpaceTempGoG_detr_dota(nn.Module):
             self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list))
         )
 
-        # Ensure batch_vec matches the number of nodes
-        if batch_vec is not None:
-            batch_vec = batch_vec.view(-1)
-            if batch_vec.numel() != frame_embed_img.size(0):
-                repeat_factor = frame_embed_img.size(0) // batch_vec.size(0)
-                batch_vec = batch_vec.repeat_interleave(repeat_factor).view(-1)
-
-        # Global pooling across batch
-        frame_embed_img = global_max_pool(frame_embed_img, batch_vec)
-
         # Classification
         frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
         logits_mc = self.classify_fc2(frame_embed_img)
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
 
 
 
