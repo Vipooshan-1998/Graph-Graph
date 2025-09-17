@@ -2842,9 +2842,8 @@ from torch_geometric.nn import (
 )
 
 class SpaceTempGoG_detr_dota(nn.Module):
-    def __init__(self, img_feat_dim=2048, embedding_dim=128, num_classes=2):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
         super(SpaceTempGoG_detr_dota, self).__init__()
-
         self.num_heads = 1
         self.embedding_dim = embedding_dim
 
