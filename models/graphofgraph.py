@@ -2834,68 +2834,9 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 #         return logits, probs
 
 
-# import torch
-# import torch.nn as nn
-# from torch_geometric.nn import GATv2Conv, InstanceNorm
-
-# class SpaceTempGoG_detr_dota(nn.Module):
-#     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
-#         super(SpaceTempGoG_detr_dota, self).__init__()
-#         self.num_heads = 1
-#         self.embedding_dim = embedding_dim
-
-#         # I3D features with temporal processing
-#         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
-
-#         # LSTM for temporal sequence processing
-#         self.temporal_lstm = nn.LSTM(
-#             input_size=embedding_dim * 2,
-#             hidden_size=embedding_dim * 2,
-#             num_layers=1,
-#             batch_first=True
-#         )
-
-#         # Frame-level graph convolution using only I3D features
-#         self.gc2_i3d = GATv2Conv(
-#             embedding_dim * 2,  # Input from LSTM output
-#             embedding_dim // 2, 
-#             heads=self.num_heads
-#         )
-#         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
-
-#         # Classifier
-#         self.classify_fc1 = nn.Linear(embedding_dim // 2, embedding_dim // 2)
-#         self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
-
-#         self.relu = nn.LeakyReLU(0.2)
-#         self.softmax = nn.Softmax(dim=-1)
-
-#     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
-#                 temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
-#         # Process I3D feature
-#         img_feat = self.img_fc(img_feat)
-
-#         # LSTM temporal modeling
-#         img_feat = img_feat.unsqueeze(0)  # (1, seq_len, feat_dim)
-#         img_feat, (_, _) = self.temporal_lstm(img_feat)
-#         img_feat = img_feat.squeeze(0)  # (seq_len, feat_dim)
-
-#         # Frame-level graph convolution
-#         frame_embed_img = self.relu(
-#             self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list))
-#         )
-
-#         # Classification
-#         frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
-#         logits_mc = self.classify_fc2(frame_embed_img)
-#         probs_mc = self.softmax(logits_mc)
-
-#         return logits_mc, probs_mc
-
 import torch
 import torch.nn as nn
-from torch_geometric.nn import TransformerConv, InstanceNorm
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from torch_geometric.nn import GATv2Conv, InstanceNorm
 
 class SpaceTempGoG_detr_dad(nn.Module):
     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
@@ -2903,21 +2844,21 @@ class SpaceTempGoG_detr_dad(nn.Module):
         self.num_heads = 1
         self.embedding_dim = embedding_dim
 
-        # I3D feature projection
+        # I3D features with temporal processing
         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
 
-        # Temporal Transformer Encoder
-        encoder_layer = TransformerEncoderLayer(
-            d_model=embedding_dim * 2,
-            nhead=self.num_heads,
+        # LSTM for temporal sequence processing
+        self.temporal_lstm = nn.LSTM(
+            input_size=embedding_dim * 2,
+            hidden_size=embedding_dim * 2,
+            num_layers=1,
             batch_first=True
         )
-        self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=1)
 
-        # Frame-level graph convolution using only transformed features
-        self.gc2_i3d = TransformerConv(
-            embedding_dim * 2,
-            embedding_dim // 2,
+        # Frame-level graph convolution using only I3D features
+        self.gc2_i3d = GATv2Conv(
+            embedding_dim * 2,  # Input from LSTM output
+            embedding_dim // 2, 
             heads=self.num_heads
         )
         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
@@ -2931,12 +2872,12 @@ class SpaceTempGoG_detr_dad(nn.Module):
 
     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
                 temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
-        # Project I3D features
+        # Process I3D feature
         img_feat = self.img_fc(img_feat)
 
-        # Temporal Transformer modeling
+        # LSTM temporal modeling
         img_feat = img_feat.unsqueeze(0)  # (1, seq_len, feat_dim)
-        img_feat = self.temporal_transformer(img_feat, is_causal=True)
+        img_feat, (_, _) = self.temporal_lstm(img_feat)
         img_feat = img_feat.squeeze(0)  # (seq_len, feat_dim)
 
         # Frame-level graph convolution
@@ -2950,6 +2891,65 @@ class SpaceTempGoG_detr_dad(nn.Module):
         probs_mc = self.softmax(logits_mc)
 
         return logits_mc, probs_mc
+
+# import torch
+# import torch.nn as nn
+# from torch_geometric.nn import TransformerConv, InstanceNorm
+# from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+# class SpaceTempGoG_detr_dad(nn.Module):
+#     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
+#         super(SpaceTempGoG_detr_dad, self).__init__()
+#         self.num_heads = 1
+#         self.embedding_dim = embedding_dim
+
+#         # I3D feature projection
+#         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
+
+#         # Temporal Transformer Encoder
+#         encoder_layer = TransformerEncoderLayer(
+#             d_model=embedding_dim * 2,
+#             nhead=self.num_heads,
+#             batch_first=True
+#         )
+#         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=1)
+
+#         # Frame-level graph convolution using only transformed features
+#         self.gc2_i3d = TransformerConv(
+#             embedding_dim * 2,
+#             embedding_dim // 2,
+#             heads=self.num_heads
+#         )
+#         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
+
+#         # Classifier
+#         self.classify_fc1 = nn.Linear(embedding_dim // 2, embedding_dim // 2)
+#         self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
+
+#         self.relu = nn.LeakyReLU(0.2)
+#         self.softmax = nn.Softmax(dim=-1)
+
+#     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
+#                 temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
+#         # Project I3D features
+#         img_feat = self.img_fc(img_feat)
+
+#         # Temporal Transformer modeling
+#         img_feat = img_feat.unsqueeze(0)  # (1, seq_len, feat_dim)
+#         img_feat = self.temporal_transformer(img_feat, is_causal=True)
+#         img_feat = img_feat.squeeze(0)  # (seq_len, feat_dim)
+
+#         # Frame-level graph convolution
+#         frame_embed_img = self.relu(
+#             self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list))
+#         )
+
+#         # Classification
+#         frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
+#         logits_mc = self.classify_fc2(frame_embed_img)
+#         probs_mc = self.softmax(logits_mc)
+
+#         return logits_mc, probs_mc
 
 
 
