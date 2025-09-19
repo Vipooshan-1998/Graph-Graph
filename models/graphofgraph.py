@@ -3098,7 +3098,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # Temporal Transformer
         # -----------------------
         img_feat_trans = img_feat.unsqueeze(0)  # (1, seq_len, d_model)
-        img_feat_tran = self.temporal_transformer(img_feat_trans)
+        img_feat_tran = self.temporal_transformer(img_feat_trans, is_causal=True)
         img_feat_tran = img_feat_tran.squeeze(0)  # (seq_len, d_model)
 
         # -----------------------
@@ -3108,7 +3108,7 @@ class SpaceTempGoG_detr_dota(nn.Module):
             img_feat.unsqueeze(0),  # Q
             img_feat.unsqueeze(0),  # K
             img_feat.unsqueeze(0),  # V
-            need_weights=False
+            is_causal=True
         )
         img_feat_attn = img_feat_attn.squeeze(0)
 
@@ -3121,16 +3121,16 @@ class SpaceTempGoG_detr_dota(nn.Module):
         # -----------------------
         # Concatenate all features
         # -----------------------
-        frame_embed_ = torch.cat((frame_embed_tran, frame_embed_attn), dim=1)
+        frame_embed_img = torch.cat((frame_embed_tran, frame_embed_attn), dim=1)
 
         # -----------------------
         # Classification
         # -----------------------
-        frame_embed_ = self.relu(self.classify_fc1(frame_embed_))
-        logits = self.classify_fc2(frame_embed_)
-        probs = self.softmax(logits)
+        frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
+        logits_mc = self.classify_fc2(frame_embed_img)
+        probs_mc = self.softmax(logits_mc)
 
-        return logits, probs
+        return logits_mc, probs_mc
 
 
 
