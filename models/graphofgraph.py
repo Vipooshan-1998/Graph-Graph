@@ -2955,182 +2955,182 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 
 
 # Multi-head only
-import torch
-import torch.nn as nn
-from torch_geometric.nn import TransformerConv, InstanceNorm
-from torch.nn import MultiheadAttention
-
-class SpaceTempGoG_detr_dota(nn.Module):
-    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
-        super(SpaceTempGoG_detr_dota, self).__init__()
-        self.num_heads = 1
-        self.embedding_dim = embedding_dim
-
-        # I3D feature projection
-        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
-
-        # Temporal Multihead Attention (replaces TransformerEncoder)
-        self.img_attn = MultiheadAttention(
-            embed_dim=embedding_dim * 2,
-            num_heads=self.num_heads,
-            batch_first=True
-        )
-
-        # Frame-level graph convolution using only transformed features
-        self.gc2_i3d = TransformerConv(
-            embedding_dim * 2,
-            embedding_dim // 2,
-            heads=self.num_heads
-        )
-        self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
-
-        # Classifier
-        self.classify_fc1 = nn.Linear(embedding_dim // 2, embedding_dim // 2)
-        self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
-
-        self.relu = nn.LeakyReLU(0.2)
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
-                temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
-        # Project I3D features
-        img_feat = self.img_fc(img_feat)
-
-        # -------------------------
-        # Temporal modeling block
-        # -------------------------
-        img_feat_trans = img_feat  # projected features
-        img_feat_attn, _ = self.img_attn(
-            img_feat_trans.unsqueeze(0),  # Q
-            img_feat_trans.unsqueeze(0),  # K
-            img_feat_trans.unsqueeze(0),  # V
-            is_causal=True
-        )
-        img_feat = img_feat_attn.squeeze(0)  # (seq_len, feat_dim)
-
-        # Frame-level graph convolution
-        frame_embed_img = self.relu(
-            self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list))
-        )
-
-        # Classification
-        frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
-        logits_mc = self.classify_fc2(frame_embed_img)
-        probs_mc = self.softmax(logits_mc)
-
-        return logits_mc, probs_mc
-
-
-
-# Combined - 1 Transformer 1 Multi-head
 # import torch
 # import torch.nn as nn
-# import torch.nn.functional as F
 # from torch_geometric.nn import TransformerConv, InstanceNorm
-# from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
+# from torch.nn import MultiheadAttention
 
 # class SpaceTempGoG_detr_dota(nn.Module):
 #     def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
 #         super(SpaceTempGoG_detr_dota, self).__init__()
-
-#         self.embedding_dim = embedding_dim
 #         self.num_heads = 1
+#         self.embedding_dim = embedding_dim
 
-#         # -----------------------
-#         # Image feature projection
-#         # -----------------------
+#         # I3D feature projection
 #         self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
 
-#         # -----------------------
-#         # Temporal TransformerEncoder
-#         # -----------------------
-#         encoder_layer = TransformerEncoderLayer(
-#             d_model=embedding_dim * 2,
-#             nhead=self.num_heads,
-#             batch_first=True
-#         )
-#         self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
-
-#         # -----------------------
-#         # Multihead attention branch
-#         # -----------------------
+#         # Temporal Multihead Attention (replaces TransformerEncoder)
 #         self.img_attn = MultiheadAttention(
 #             embed_dim=embedding_dim * 2,
 #             num_heads=self.num_heads,
 #             batch_first=True
 #         )
 
-#         # -----------------------
-#         # Graph TransformerConv branches
-#         # -----------------------
-#         self.gc_tran = TransformerConv(
-#             in_channels=embedding_dim * 2,
-#             out_channels=embedding_dim // 2,
+#         # Frame-level graph convolution using only transformed features
+#         self.gc2_i3d = TransformerConv(
+#             embedding_dim * 2,
+#             embedding_dim // 2,
 #             heads=self.num_heads
 #         )
-#         self.gc_attn = TransformerConv(
-#             in_channels=embedding_dim * 2,
-#             out_channels=embedding_dim // 2,
-#             heads=self.num_heads
-#         )
-#         self.norm_tran = InstanceNorm(embedding_dim // 2 * self.num_heads)
-#         self.norm_attn = InstanceNorm(embedding_dim // 2 * self.num_heads)
+#         self.gc2_norm2 = InstanceNorm(embedding_dim // 2)
 
-#         # -----------------------
-#         # Classification
-#         # -----------------------
-#         concat_dim = (embedding_dim // 2 * self.num_heads) * 2
-#         self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
-#         self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
+#         # Classifier
+#         self.classify_fc1 = nn.Linear(embedding_dim // 2, embedding_dim // 2)
+#         self.classify_fc2 = nn.Linear(embedding_dim // 2, num_classes)
 
 #         self.relu = nn.LeakyReLU(0.2)
 #         self.softmax = nn.Softmax(dim=-1)
 
 #     def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
 #                 temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
+#         # Project I3D features
+#         img_feat = self.img_fc(img_feat)
 
-#         # -----------------------
-#         # Image feature projection (overwrite img_feat)
-#         # -----------------------
-#         img_feat = self.img_fc(img_feat)  # (seq_len, d_model)
-
-#         # -----------------------
-#         # Temporal Transformer
-#         # -----------------------
-#         img_feat_trans = img_feat.unsqueeze(0)  # (1, seq_len, d_model)
-#         img_feat_tran = self.temporal_transformer(img_feat_trans, is_causal=True)
-#         img_feat_tran = img_feat_tran.squeeze(0)  # (seq_len, d_model)
-
-#         # -----------------------
-#         # Multihead attention using original img_feat
-#         # -----------------------
+#         # -------------------------
+#         # Temporal modeling block
+#         # -------------------------
+#         img_feat_trans = img_feat  # projected features
 #         img_feat_attn, _ = self.img_attn(
-#             img_feat.unsqueeze(0),  # Q
-#             img_feat.unsqueeze(0),  # K
-#             img_feat.unsqueeze(0),  # V
+#             img_feat_trans.unsqueeze(0),  # Q
+#             img_feat_trans.unsqueeze(0),  # K
+#             img_feat_trans.unsqueeze(0),  # V
 #             is_causal=True
 #         )
-#         img_feat_attn = img_feat_attn.squeeze(0)
+#         img_feat = img_feat_attn.squeeze(0)  # (seq_len, feat_dim)
 
-#         # -----------------------
-#         # Graph TransformerConv
-#         # -----------------------
-#         frame_embed_tran = self.relu(self.norm_tran(self.gc_tran(img_feat_tran, video_adj_list)))
-#         frame_embed_attn = self.relu(self.norm_attn(self.gc_attn(img_feat_attn, video_adj_list)))
+#         # Frame-level graph convolution
+#         frame_embed_img = self.relu(
+#             self.gc2_norm2(self.gc2_i3d(img_feat, video_adj_list))
+#         )
 
-#         # -----------------------
-#         # Concatenate all features
-#         # -----------------------
-#         frame_embed_img = torch.cat((frame_embed_tran, frame_embed_attn), dim=1)
-
-#         # -----------------------
 #         # Classification
-#         # -----------------------
 #         frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
 #         logits_mc = self.classify_fc2(frame_embed_img)
 #         probs_mc = self.softmax(logits_mc)
 
 #         return logits_mc, probs_mc
+
+
+
+# Combined - 1 Transformer 1 Multi-head
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.nn import TransformerConv, InstanceNorm
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, MultiheadAttention
+
+class SpaceTempGoG_detr_dota(nn.Module):
+    def __init__(self, input_dim=2048, embedding_dim=128, img_feat_dim=2048, num_classes=2):
+        super(SpaceTempGoG_detr_dota, self).__init__()
+
+        self.embedding_dim = embedding_dim
+        self.num_heads = 1
+
+        # -----------------------
+        # Image feature projection
+        # -----------------------
+        self.img_fc = nn.Linear(img_feat_dim, embedding_dim * 2)
+
+        # -----------------------
+        # Temporal TransformerEncoder
+        # -----------------------
+        encoder_layer = TransformerEncoderLayer(
+            d_model=embedding_dim * 2,
+            nhead=self.num_heads,
+            batch_first=True
+        )
+        self.temporal_transformer = TransformerEncoder(encoder_layer, num_layers=2)
+
+        # -----------------------
+        # Multihead attention branch
+        # -----------------------
+        self.img_attn = MultiheadAttention(
+            embed_dim=embedding_dim * 2,
+            num_heads=self.num_heads,
+            batch_first=True
+        )
+
+        # -----------------------
+        # Graph TransformerConv branches
+        # -----------------------
+        self.gc_tran = TransformerConv(
+            in_channels=embedding_dim * 2,
+            out_channels=embedding_dim // 2,
+            heads=self.num_heads
+        )
+        self.gc_attn = TransformerConv(
+            in_channels=embedding_dim * 2,
+            out_channels=embedding_dim // 2,
+            heads=self.num_heads
+        )
+        self.norm_tran = InstanceNorm(embedding_dim // 2 * self.num_heads)
+        self.norm_attn = InstanceNorm(embedding_dim // 2 * self.num_heads)
+
+        # -----------------------
+        # Classification
+        # -----------------------
+        concat_dim = (embedding_dim // 2 * self.num_heads) * 2
+        self.classify_fc1 = nn.Linear(concat_dim, embedding_dim)
+        self.classify_fc2 = nn.Linear(embedding_dim, num_classes)
+
+        self.relu = nn.LeakyReLU(0.2)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x, edge_index, img_feat, video_adj_list, edge_embeddings=None,
+                temporal_adj_list=None, temporal_edge_w=None, batch_vec=None):
+
+        # -----------------------
+        # Image feature projection (overwrite img_feat)
+        # -----------------------
+        img_feat = self.img_fc(img_feat)  # (seq_len, d_model)
+
+        # -----------------------
+        # Temporal Transformer
+        # -----------------------
+        img_feat_trans = img_feat.unsqueeze(0)  # (1, seq_len, d_model)
+        img_feat_tran = self.temporal_transformer(img_feat_trans, is_causal=True)
+        img_feat_tran = img_feat_tran.squeeze(0)  # (seq_len, d_model)
+
+        # -----------------------
+        # Multihead attention using original img_feat
+        # -----------------------
+        img_feat_attn, _ = self.img_attn(
+            img_feat.unsqueeze(0),  # Q
+            img_feat.unsqueeze(0),  # K
+            img_feat.unsqueeze(0),  # V
+            is_causal=True
+        )
+        img_feat_attn = img_feat_attn.squeeze(0)
+
+        # -----------------------
+        # Graph TransformerConv
+        # -----------------------
+        frame_embed_tran = self.relu(self.norm_tran(self.gc_tran(img_feat_tran, video_adj_list)))
+        frame_embed_attn = self.relu(self.norm_attn(self.gc_attn(img_feat_attn, video_adj_list)))
+
+        # -----------------------
+        # Concatenate all features
+        # -----------------------
+        frame_embed_img = torch.cat((frame_embed_tran, frame_embed_attn), dim=1)
+
+        # -----------------------
+        # Classification
+        # -----------------------
+        frame_embed_img = self.relu(self.classify_fc1(frame_embed_img))
+        logits_mc = self.classify_fc2(frame_embed_img)
+        probs_mc = self.softmax(logits_mc)
+
+        return logits_mc, probs_mc
 
 
 
