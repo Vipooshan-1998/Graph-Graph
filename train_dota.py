@@ -74,6 +74,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cls_criterion = nn.CrossEntropyLoss().to(device)
 
 best_ap = -1
+best_ap_mtta = -1
 n_frames = 50
 
 
@@ -155,10 +156,12 @@ def test_model(epoch, model, test_dataloader):
     # # Saving checkpoint
     if avg_prec > best_ap:
         best_ap = avg_prec
+        best_ap_mtta = curr_ttc
         os.makedirs("model_checkpoints/dota", exist_ok=True)
         torch.save(model.state_dict(), f"model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
         print(f"Saved the model checkpoint - model_checkpoints/dota/{model.__class__.__name__}_{epoch}.pth")
     print("Best Frame avg precision: %.2f%%" % (best_ap))
+    print("Best Frame avg precision's mTTA: %.2f%%" % (best_ap_mtta))
   
     # Saving checkpoint
     # if avg_prec > best_ap:
