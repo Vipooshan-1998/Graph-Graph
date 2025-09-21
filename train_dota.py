@@ -86,7 +86,7 @@ def test_model(epoch, model, test_dataloader):
     test_dataloader: Dataloader for the testset
     """
 
-    global best_ap
+    global best_ap, best_ap_mtta
     print("")
     model.eval()
     total_correct, total, all_toa = 0, 0, []
