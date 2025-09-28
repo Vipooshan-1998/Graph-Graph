@@ -212,7 +212,8 @@ def main():
 
 			X, edge_index, y, img_feat, video_adj_list = X.to(device), edge_index.to(device), y.to(device), img_feat.to(device), video_adj_list.to(device)
 			temporal_adj_list, temporal_edge_w, edge_embeddings, batch_vec = temporal_adj_list.to(device), temporal_edge_w.to(device), edge_embeddings.to(device), batch_vec.to(device)
-			
+
+			print("img_feat: ", img_feat.shape)
 			# Get predictions from the model
 			logits, probs = model(X, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list, temporal_edge_w, batch_vec)
  
@@ -269,3 +270,4 @@ def main():
 	
 if __name__ == "__main__":
 	main()
+
