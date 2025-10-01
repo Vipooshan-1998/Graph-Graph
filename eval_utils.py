@@ -49,6 +49,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     Time = np.zeros((n_frames))
     cnt = 0
     thresholds_list = []
+    precision_by_threshold = []
     for Th in np.arange(max(min_pred, 0), 1.0, 0.001):
         Tp = 0.0
         Tp_Fp = 0.0
@@ -71,6 +72,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
             continue
         else:
             Precision[cnt] = Tp/Tp_Fp
+            precision_by_threshold.append(Precision[cnt])
             thresholds_list.append(Th)
         if np.sum(all_labels) ==0: # gt of all videos are negative
             continue
@@ -140,7 +142,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
 
     # Plot Precision-Recall Curve
     plt.figure(figsize=(7,6))
-    plt.plot(thresholds_list, new_Precision, marker='o', linestyle='-', color='g')
+    plt.plot(thresholds_list, precision_by_threshold, marker='o', linestyle='-', color='g')
     plt.xlabel("Threshold")
     plt.ylabel("Precision")
     plt.title(title)
