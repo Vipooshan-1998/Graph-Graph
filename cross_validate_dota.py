@@ -225,9 +225,21 @@ def train(train_dataloader, test_dataloader, fold):
             temporal_adj_list, temporal_edge_w, edge_embeddings, batch_vec = temporal_adj_list.to(
                 device), temporal_edge_w.to(device), edge_embeddings.to(device), batch_vec.to(device)
 
-            # Get predictions from the model
-            logits, probs = model(X, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list,
-                                  temporal_edge_w, batch_vec)
+            # # Get predictions from the model
+            # logits, probs = model(X, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list,
+            #                       temporal_edge_w, batch_vec)
+
+            # ----------------------
+            # Run FLOP analysis
+            # ----------------------
+            inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
+                      temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
+            flops = FlopCountAnalysis(model, inputs)
+
+            print("Total FLOPs:", flops.total())
+            print("FLOPs per module:")
+            print(flops.by_module())
+
 
             # Exclude the actual accident frames from the training
             c_loss1 = cls_criterion(logits[:toa], y[:toa])
