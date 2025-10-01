@@ -46,6 +46,7 @@ import time
 from eval_utils import evaluation
 
 import random
+from fvcore.nn import FlopCountAnalysis
 
 torch.manual_seed(0)  # 3407
 np.random.seed(0)
