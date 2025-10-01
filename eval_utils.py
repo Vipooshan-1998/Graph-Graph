@@ -32,6 +32,10 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
             pred = all_pred[idx, :int(toa)]  # positive video
         else:
             pred = all_pred[idx, :]  # negative video
+        # ---- new change - for class distribution ----
+        out = int(np.any(pred > 0.5))
+        print(out)
+        # ---------------------------------------------
         # find the minimum prediction
         min_pred = np.min(pred) if min_pred > np.min(pred) else min_pred
         preds_eval.append(pred)
