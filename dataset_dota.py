@@ -136,7 +136,8 @@ class Dataset(Dataset):
             curr_toa = self.n_frames + 1
 
         # Reading frame (i3d) features for the frames
-        print(feature_path.split('/')[-1].split(".")[0])
+        print("file_name in dataloader: ", feature_path.split('/')[-1].split(".")[0])
+        file_name = feature_path.split('/')[-1].split(".")[0]
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
@@ -294,7 +295,7 @@ class Dataset(Dataset):
                 video_adj_list += [[i - j, i]]  # adding previous ref_interval neighbors
         video_adj_list = torch.Tensor(video_adj_list).permute((1, 0)).long()
 
-        return data.x, data.edge_index, data.y, all_img_feat, video_adj_list, edge_embeddings, temporal_adj_list, obj_vis_feat, num_objs_list, curr_toa
+        return data.x, data.edge_index, data.y, all_img_feat, video_adj_list, edge_embeddings, temporal_adj_list, obj_vis_feat, num_objs_list, curr_toa, file_name
 
     def __len__(self):
         return len(self.feature_paths)
