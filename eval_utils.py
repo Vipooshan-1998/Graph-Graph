@@ -145,7 +145,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     plt.plot(thresholds_list, precision_by_threshold, marker='o', linestyle='-', color='g')
     plt.xlabel("Threshold")
     plt.ylabel("Precision")
-    plt.title(title)
+    plt.title("Precision-Threshold Curve")
     plt.grid(True)
     plt.tight_layout()
 
