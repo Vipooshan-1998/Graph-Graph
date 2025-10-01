@@ -46,7 +46,7 @@ import time
 from eval_utils import evaluation
 
 import random
-from fvcore.nn import FlopCountAnalysis
+from flopth import flopth
 
 torch.manual_seed(0)  # 3407
 np.random.seed(0)
@@ -235,11 +235,10 @@ def train(train_dataloader, test_dataloader, fold):
             # ----------------------
             inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
                       temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
-            flops = FlopCountAnalysis(model, inputs)
+            flops, params = flopth(model, inputs)
 
-            print("Total FLOPs:", flops.total())
-            print("FLOPs per module:")
-            print(flops.by_module())
+            print("FLOPs: ", flops)
+            print("Params: ", params)
 
 
             # Exclude the actual accident frames from the training
