@@ -136,7 +136,7 @@ class Dataset(Dataset):
             curr_toa = self.n_frames + 1
 
         # Reading frame (i3d) features for the frames
-        print(feature_path.split('/')[-1].split(".")[0])
+        # print(feature_path.split('/')[-1].split(".")[0])
         if curr_vid_label > 0:
             img_file = os.path.join(self.img_dataset_path, feature_path.split('/')[-2], "positive",
                                     feature_path.split('/')[-1].split(".")[0] + '.npy')
