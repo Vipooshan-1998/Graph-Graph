@@ -227,18 +227,18 @@ def train(train_dataloader, test_dataloader, fold):
                 device), temporal_edge_w.to(device), edge_embeddings.to(device), batch_vec.to(device)
 
             # # Get predictions from the model
-            # logits, probs = model(X, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list,
-            #                       temporal_edge_w, batch_vec)
+            logits, probs = model(X, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list,
+                                  temporal_edge_w, batch_vec)
 
             # ----------------------
             # Run FLOP analysis
             # ----------------------
-            inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
-                      temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
-            flops, params = flopth(model, inputs)
+            # inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
+            #           temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
+            # flops, params = flopth(model, inputs)
 
-            print("FLOPs: ", flops)
-            print("Params: ", params)
+            # print("FLOPs: ", flops)
+            # print("Params: ", params)
 
 
             # Exclude the actual accident frames from the training
