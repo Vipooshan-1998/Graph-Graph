@@ -129,7 +129,8 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     plt.tight_layout()
     
     # Create directory if it doesn't exist
-    os.makedirs(os.path.dirname("/kaggle/working/pr_curve.png"), exist_ok=True)
+    save_path = "/kaggle/working/plot/pr_curve.png"
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     
     plt.savefig(save_path)
     plt.close()  # Close the figure to avoid displaying it in notebooks or scripts
