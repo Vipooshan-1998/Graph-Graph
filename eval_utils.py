@@ -123,7 +123,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     plt.plot(new_Recall, new_Precision, marker='o', linestyle='-', color='b', label=f'AP = {AP:.4f}')
     plt.xlabel("Recall")
     plt.ylabel("Precision")
-    plt.title(title)
+    plt.title("Precision-Recall Curve")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
