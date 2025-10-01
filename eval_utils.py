@@ -140,7 +140,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
 
     # Plot Precision-Recall Curve
     plt.figure(figsize=(7,6))
-    plt.plot(thresholds_list, precision, marker='o', linestyle='-', color='g')
+    plt.plot(thresholds_list, new_Precision, marker='o', linestyle='-', color='g')
     plt.xlabel("Threshold")
     plt.ylabel("Precision")
     plt.title(title)
