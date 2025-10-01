@@ -119,6 +119,22 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     TTA_R80 = sort_time[np.argmin(np.abs(sort_recall-0.8))] * total_seconds
     print("Recall@80%, Time to accident= " +"{:.4}".format(TTA_R80))
 
+    plt.figure(figsize=(7,6))
+    plt.plot(recall, precision, marker='o', linestyle='-', color='b', label=f'AP = {average_precision:.4f}')
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname("/kaggle/working/pr_curve.png"), exist_ok=True)
+    
+    plt.savefig(save_path)
+    plt.close()  # Close the figure to avoid displaying it in notebooks or scripts
+
+
     return AP, mTTA, TTA_R80
 
 
