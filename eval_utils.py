@@ -120,7 +120,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     print("Recall@80%, Time to accident= " +"{:.4}".format(TTA_R80))
 
     plt.figure(figsize=(7,6))
-    plt.plot(recall, precision, marker='o', linestyle='-', color='b', label=f'AP = {average_precision:.4f}')
+    plt.plot(new_Recall, new_Precision, marker='o', linestyle='-', color='b', label=f'AP = {average_precision:.4f}')
     plt.xlabel("Recall")
     plt.ylabel("Precision")
     plt.title(title)
