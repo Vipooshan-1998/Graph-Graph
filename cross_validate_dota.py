@@ -236,26 +236,30 @@ def train(train_dataloader, test_dataloader, fold):
             inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
                       temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
             # flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
-            with FlopTensorDispatchMode(model) as ftdm:
-                # count forward flops
-                out = model(*inputs)
-                if isinstance(out, (tuple, list)):
-                      out = out[0]  # assume first element is main output tenso
-                      res = out.mean()
-                flops_forward = copy.deepcopy(ftdm.flop_counts)
-
-            # ---- flatten + sum FLOPs (no function) ----
-            total_flops = 0
-            stack = [flops_forward]
-            while stack:
-                current = stack.pop()
-                for v in current.values():
-                      if isinstance(v, (dict, defaultdict)):
-                          stack.append(v)
-                      else:
-                          total_flops += v
-
-                print("Total FLOPs:", total_flops)
+            # only measure FLOPs for the first batch
+            if batch_i == 0:
+                with torch.no_grad():
+                    with FlopTensorDispatchMode(model) as ftdm:
+                        out = model(X, edge_index, img_feat, video_adj_list,
+                                    edge_embeddings, temporal_adj_list,
+                                    temporal_edge_w, batch_vec)
+                        if isinstance(out, (tuple, list)):
+                            out = out[0]
+                            _ = out.mean()
+                        flops_forward = copy.deepcopy(ftdm.flop_counts)
+            
+                # flatten + sum
+                total_flops = 0
+                stack = [flops_forward]
+                while stack:
+                    current = stack.pop()
+                    for v in current.values():
+                        if isinstance(v, (dict, defaultdict)):
+                            stack.append(v)
+                        else:
+                            total_flops += v
+            
+                print("Inference FLOPs (first batch):", total_flops)
 
 
             # Exclude the actual accident frames from the training
