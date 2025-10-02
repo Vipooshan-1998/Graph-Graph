@@ -46,7 +46,7 @@ import time
 from eval_utils import evaluation
 
 import random
-from torch.utils.flop_counter import FlopCounterMode
+from torchtnt.utils.flops import FlopTensorDispatchMode
 
 torch.manual_seed(0)  # 3407
 np.random.seed(0)
@@ -235,15 +235,13 @@ def train(train_dataloader, test_dataloader, fold):
             # ----------------------
             inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
                       temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
-            flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
-            with flop_counter:
-                if with_backward:
-                      model(inputs).sum().backward()
-                else:
-                      model(inputs)
-            total_flops =  flop_counter.get_total_flops()
+            # flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
+            with FlopTensorDispatchMode(module) as ftdm::
+                # count forward flops
+                res = model(inputs).mean()
+                flops_forward = copy.deepcopy(ftdm.flop_counts)
 
-            print("FLOPs: ", total_flops)
+                print("FLOPs: ", flops_forward)
             # print("Params: ", params)
 
 
