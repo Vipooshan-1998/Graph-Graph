@@ -238,7 +238,10 @@ def train(train_dataloader, test_dataloader, fold):
             # flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
             with FlopTensorDispatchMode(model) as ftdm:
                 # count forward flops
-                res = model(*inputs).mean()
+                out = model(*inputs)
+                if isinstance(out, (tuple, list)):
+                      out = out[0]  # assume first element is main output tenso
+                      res = out.mean()
                 flops_forward = copy.deepcopy(ftdm.flop_counts)
 
                 print("Total FLOPs: ", sum(flops_forward.values()))
