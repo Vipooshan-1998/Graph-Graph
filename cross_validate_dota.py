@@ -39,7 +39,7 @@ import sklearn
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
-
+https://github.com/Vipooshan-1998/Graph-Graph/blob/main/cross_validate_dota.py
 import time
 from eval_utils import evaluation
 import time
@@ -47,6 +47,8 @@ from eval_utils import evaluation
 
 import random
 from torchtnt.utils.flops import FlopTensorDispatchMode
+from collections import defaultdict
+import copy
 
 torch.manual_seed(0)  # 3407
 np.random.seed(0)
@@ -244,8 +246,18 @@ def train(train_dataloader, test_dataloader, fold):
                       res = out.mean()
                 flops_forward = copy.deepcopy(ftdm.flop_counts)
 
-                print("Total FLOPs: ", sum(flops_forward.values()))
-            # print("Params: ", params)
+            # ---- flatten + sum FLOPs (no function) ----
+            total_flops = 0
+            stack = [flops_forward]
+            while stack:
+                current = stack.pop()
+                for v in current.values():
+                      if isinstance(v, (dict, defaultdict)):
+                          stack.append(v)
+                      else:
+                          total_flops += v
+
+                print("Total FLOPs:", total_flops)
 
 
             # Exclude the actual accident frames from the training
