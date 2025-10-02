@@ -72,7 +72,7 @@ parser.add_argument("--num_classes", type=int, default=2, help="number of classe
 parser.add_argument("--ref_interval", type=int, default=20, help="Interval size for reference frames")
 parser.add_argument("--fps", type=int, default=10, help="Video fps")
 parser.add_argument("--n_frames", type=int, default=50, help="number of frames in a video")
-parser.add_argument("--ego_dist", type=int, default=1, help="Ego and other vehicles distance")
+parser.add_argument("--ego_dist", type=int, default=0, help="Ego and other vehicles distance")
 
 opt = parser.parse_args()
 print(opt)
