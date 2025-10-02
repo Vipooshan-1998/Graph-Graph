@@ -46,7 +46,7 @@ import time
 from eval_utils import evaluation
 
 import random
-# from flopth import flopth
+from torch.utils.flop_counter import FlopCounterMode
 
 torch.manual_seed(0)  # 3407
 np.random.seed(0)
@@ -233,11 +233,17 @@ def train(train_dataloader, test_dataloader, fold):
             # ----------------------
             # Run FLOP analysis
             # ----------------------
-            # inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
-            #           temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
-            # flops, params = flopth(model, inputs)
+            inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
+                      temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
+            flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
+            with flop_counter:
+                if with_backward:
+                      model(inputs).sum().backward()
+                else:
+                      model(inputs)
+            total_flops =  flop_counter.get_total_flops()
 
-            # print("FLOPs: ", flops)
+            print("FLOPs: ", total_flops)
             # print("Params: ", params)
 
 
