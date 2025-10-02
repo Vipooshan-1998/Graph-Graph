@@ -39,9 +39,7 @@ import sklearn
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
-https://github.com/Vipooshan-1998/Graph-Graph/blob/main/cross_validate_dota.py
-import time
-from eval_utils import evaluation
+
 import time
 from eval_utils import evaluation
 
