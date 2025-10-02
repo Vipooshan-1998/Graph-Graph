@@ -236,7 +236,7 @@ def train(train_dataloader, test_dataloader, fold):
             inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
                       temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
             # flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
-            with FlopTensorDispatchMode(module) as ftdm::
+            with FlopTensorDispatchMode(module) as ftdm:
                 # count forward flops
                 res = model(inputs).mean()
                 flops_forward = copy.deepcopy(ftdm.flop_counts)
