@@ -494,11 +494,11 @@ class CrossValDataset(Dataset):
             dist_mat = F.softmax(-dist_mat, dim=-1)
             dist_rel = dist_mat[adj_list[0, :], adj_list[1, :]].unsqueeze(1)
 
-            if self.ego_dist == 1:
-                n = bbox.shape[0]-1
-                dist = self._get_distances((bbox[0, 0].unsqueeze(0).repeat(n, 1), bbox[0, 1].unsqueeze(0).repeat(n, 1)), (bbox[0, 2].unsqueeze(0).repeat(n, 1), bbox[0, 3].unsqueeze(0).repeat(n, 1)), ((bbox[1:, 0]+bbox[1:, 2])/2, bbox[1:, 3]))
-                dist = torch.nan_to_num(dist, nan=0.0)
-                dist_rel[0:n, :] = dist[0].unsqueeze(1)
+            # if self.ego_dist == 1:
+            #     n = bbox.shape[0]-1
+            #     dist = self._get_distances((bbox[0, 0].unsqueeze(0).repeat(n, 1), bbox[0, 1].unsqueeze(0).repeat(n, 1)), (bbox[0, 2].unsqueeze(0).repeat(n, 1), bbox[0, 3].unsqueeze(0).repeat(n, 1)), ((bbox[1:, 0]+bbox[1:, 2])/2, bbox[1:, 3]))
+            #     dist = torch.nan_to_num(dist, nan=0.0)
+            #     dist_rel[0:n, :] = dist[0].unsqueeze(1)
 
             edge_embed = torch.cat((source_centers, target_centers, dist_rel), 1)
 
