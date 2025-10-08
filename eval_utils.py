@@ -33,7 +33,8 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
         else:
             pred = all_pred[idx, :]  # negative video
         # ---- new change - for class distribution ----
-        out = int(np.any(pred >= 0.92))
+        # out = int(np.any(pred >= 0.92)) # Test DADA
+        out = int(np.any(pred >= 0.083))  # Test DoTA
         # print("Actual: ", all_labels[idx])
         print(out)
         # ---------------------------------------------
