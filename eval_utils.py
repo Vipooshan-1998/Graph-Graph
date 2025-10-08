@@ -33,9 +33,9 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
         else:
             pred = all_pred[idx, :]  # negative video
         # ---- new change - for class distribution ----
-        # out = int(np.any(pred > 0.5))
-        # # print("Actual: ", all_labels[idx])
-        # print(out)
+        out = int(np.any(pred > 0.5))
+        # print("Actual: ", all_labels[idx])
+        print(out)
         # ---------------------------------------------
         # find the minimum prediction
         min_pred = np.min(pred) if min_pred > np.min(pred) else min_pred
@@ -79,6 +79,10 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
             continue
         else:
             Recall[cnt] = Tp/np.sum(all_labels)
+        # print Th if recall > 80
+        if Recall[cnt] >= 80:
+            print("Recall: ", Recall[cnt])
+            print("Th: ", Th)
         if counter == 0:
             continue
         else:
@@ -124,38 +128,38 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     TTA_R80 = sort_time[np.argmin(np.abs(sort_recall-0.8))] * total_seconds
     print("Recall@80%, Time to accident= " +"{:.4}".format(TTA_R80))
 
-    # Plot Precision-Recall Curve
-    plt.figure(figsize=(7,6))
-    plt.plot(new_Recall, new_Precision, marker='o', linestyle='-', color='b', label=f'AP = {AP:.4f}')
-    plt.xlabel("Recall")
-    plt.ylabel("Precision")
-    plt.title("Precision-Recall Curve")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
+    # # Plot Precision-Recall Curve
+    # plt.figure(figsize=(7,6))
+    # plt.plot(new_Recall, new_Precision, marker='o', linestyle='-', color='b', label=f'AP = {AP:.4f}')
+    # plt.xlabel("Recall")
+    # plt.ylabel("Precision")
+    # plt.title("Precision-Recall Curve")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.tight_layout()
     
-    # Create directory if it doesn't exist
-    save_path = "/kaggle/working/plot/pr_recall_curve.png"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    # # Create directory if it doesn't exist
+    # save_path = "/kaggle/working/plot/pr_recall_curve.png"
+    # os.makedirs(os.path.dirname(save_path), exist_ok=True)
     
-    plt.savefig(save_path)
-    plt.close()  # Close the figure to avoid displaying it in notebooks or scripts
+    # plt.savefig(save_path)
+    # plt.close()  # Close the figure to avoid displaying it in notebooks or scripts
 
-    # Plot Precision-Recall Curve
-    plt.figure(figsize=(7,6))
-    plt.plot(thresholds_list, precision_by_threshold, marker='o', linestyle='-', color='g')
-    plt.xlabel("Threshold")
-    plt.ylabel("Precision")
-    plt.title("Precision-Threshold Curve")
-    plt.grid(True)
-    plt.tight_layout()
+    # # Plot Precision-Recall Curve
+    # plt.figure(figsize=(7,6))
+    # plt.plot(thresholds_list, precision_by_threshold, marker='o', linestyle='-', color='g')
+    # plt.xlabel("Threshold")
+    # plt.ylabel("Precision")
+    # plt.title("Precision-Threshold Curve")
+    # plt.grid(True)
+    # plt.tight_layout()
 
-    # Create directory if it doesn't exist
-    save_path = "/kaggle/working/plot/pr_th_curve.png"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    # # Create directory if it doesn't exist
+    # save_path = "/kaggle/working/plot/pr_th_curve.png"
+    # os.makedirs(os.path.dirname(save_path), exist_ok=True)
     
-    plt.savefig(save_path)
-    plt.close()
+    # plt.savefig(save_path)
+    # plt.close()
 
 
     return AP, mTTA, TTA_R80
