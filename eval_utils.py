@@ -80,7 +80,7 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
         else:
             Recall[cnt] = Tp/np.sum(all_labels)
         # print Th if recall > 80
-        if Recall[cnt] >= 80:
+        if Recall[cnt] >= 0.8:
             print("Recall: ", Recall[cnt])
             print("Th: ", Th)
         if counter == 0:
