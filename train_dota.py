@@ -95,7 +95,7 @@ def test_model(epoch, model, test_dataloader):
     X, edge_index, y_true, img_feat, video_adj_list, edge_embeddings, temporal_adj_list, obj_vis_feat, batch_vec,
     toa, file_name) in enumerate(test_dataloader):
         # print("file_name in order: ", file_name)
-        # print(file_name[0])
+        print(file_name[0])
         X = X.reshape(-1, X.shape[2])
         img_feat = img_feat.reshape(-1, img_feat.shape[2])
         edge_index = edge_index.reshape(-1, edge_index.shape[2])
