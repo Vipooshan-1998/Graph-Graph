@@ -12,11 +12,11 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
     :output: AP (average precision, AUC), mTTA (mean Time-to-Accident), TTA@R80 (TTA at Recall=80%)
     """
     # Debugging: check predictions, labels, toa
-    print("all_pred shape:", all_pred.shape)
-    print("all_labels shape:", all_labels.shape)
-    print("min:", np.min(all_pred), "max:", np.max(all_pred))
-    print("labels:", np.unique(all_labels))
-    print("toa sample:", time_of_accidents[:10])
+    # print("all_pred shape:", all_pred.shape)
+    # print("all_labels shape:", all_labels.shape)
+    # print("min:", np.min(all_pred), "max:", np.max(all_pred))
+    # print("labels:", np.unique(all_labels))
+    # print("toa sample:", time_of_accidents[:10])
 
     preds_eval = []
     min_pred = np.inf
