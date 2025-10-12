@@ -88,8 +88,8 @@ def test_model(epoch, model, test_dataloader):
 		with torch.no_grad():
 			logits, probs = model(X, edge_index, img_feat, video_adj_list, edge_embeddings, temporal_adj_list, temporal_edge_w, batch_vec)
 
-		print("logits.shape: ", logits.shape)
-		print("probs.shape:", probs.shape)
+		# print("logits.shape: ", logits.shape)
+		# print("probs.shape:", probs.shape)
 		
 		pred_labels = probs.argmax(1)
 		
@@ -272,5 +272,6 @@ def main():
 	
 if __name__ == "__main__":
 	main()
+
 
 
