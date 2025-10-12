@@ -34,9 +34,9 @@ def evaluation(all_pred, all_labels, time_of_accidents, fps=20.0):
             pred = all_pred[idx, :]  # negative video
         # ---- new change - for class distribution ----
         # out = int(np.any(pred >= 0.92)) # Test DADA
-        out = int(np.any(pred >= 0.083))  # Test DoTA
-        # print("Actual: ", all_labels[idx])
-        print(out)
+        # out = int(np.any(pred >= 0.083))  # Test DoTA
+        # # print("Actual: ", all_labels[idx])
+        # print(out)
         # ---------------------------------------------
         # find the minimum prediction
         min_pred = np.min(pred) if min_pred > np.min(pred) else min_pred
