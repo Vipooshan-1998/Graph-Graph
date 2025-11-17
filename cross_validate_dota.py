@@ -377,8 +377,8 @@ if __name__ == "__main__":
             f.write('\n'.join(test_files))
 
         # Prepare CSV rows
-        # for f_name in train_files:
-        #     csv_rows.append({"file_name": f_name, "fold": fold+1})
+        for f_name in train_files:
+            csv_rows.append({"file_name": f_name, "fold": fold+1})
         for f_name in test_files:
             csv_rows.append({"file_name": f_name, "test_fold": fold+1})
 
