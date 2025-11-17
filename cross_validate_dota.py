@@ -361,6 +361,9 @@ if __name__ == "__main__":
         # Get actual filenames for this fold
         train_files = [all_paths[i] for i in train_idx]
         test_files  = [all_paths[i] for i in test_idx]
+
+        folder = 'splt_idx'
+        os.makedirs(folder, exist_ok=True)
     
         # Save to text files
         with open(f"{folder}/fold_{fold+1}_train.txt", "w") as f:
@@ -380,6 +383,9 @@ if __name__ == "__main__":
     # -----------------------------
     print("\nChecking for video leakage between train and test sets...")
     for fold, (train_idx, test_idx) in enumerate(folds):
+
+        print('running split:', fold+1)
+
         train_ids = set(groups[i] for i in train_idx)
         test_ids  = set(groups[i] for i in test_idx)
         overlap = train_ids & test_ids
