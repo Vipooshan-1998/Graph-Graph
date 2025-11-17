@@ -357,10 +357,10 @@ if __name__ == "__main__":
     
     for fold, (train_idx, test_idx) in enumerate(gkf.split(all_paths, groups=groups)):
         folds.append((train_idx, test_idx))
-    
+
         # Get actual filenames for this fold
-        train_files = [all_paths[i] for i in train_idx]
-        test_files  = [all_paths[i] for i in test_idx]
+        train_files = [os.path.basename(all_paths[i]) for i in train_idx]
+        test_files  = [os.path.basename(all_paths[i]) for i in test_idx]
 
         folder = 'splt_idx'
         os.makedirs(folder, exist_ok=True)
