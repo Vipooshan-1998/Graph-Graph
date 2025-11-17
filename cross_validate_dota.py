@@ -332,25 +332,57 @@ if __name__ == "__main__":
         n_frames=opt.n_frames,
     )
 
-    # THIS is your filename list
-    all_filenames = dataset.feature_paths
-    print("Total files: ", len(all_filenames))
-
-    folds = opt.n_folds
-    kf = KFold(n_splits=folds, shuffle=True, random_state=42)
-
-    for fold, (train_idx, test_idx) in enumerate(kf.split(dataset)):
-
-        print('running split:', fold+1)
-
-        folder = 'splt_idx'
-        os.makedirs(folder, exist_ok=True)
-
+    # All filenames from the dataset
+    all_paths = dataset.feature_paths
+    print(f"Total files: {len(all_paths)}")
+    
+    # -----------------------------
+    # Extract video IDs (group)
+    # -----------------------------
+    def extract_video_id(path):
+        filename = os.path.basename(path).replace(".npz", "")
+        parts = filename.split('-')
+        # Remove the last part (augmentation index)
+        return '-'.join(parts[:-1])
+    
+    groups = [extract_video_id(p) for p in all_paths]
+    print(f"Total unique videos: {len(set(groups))}")
+    
+    # -----------------------------
+    # Group K-Fold split
+    # -----------------------------
+    gkf = GroupKFold(n_splits=k)
+    folds = []
+    
+    for fold, (train_idx, test_idx) in enumerate(gkf.split(all_paths, groups=groups)):
+        folds.append((train_idx, test_idx))
+    
+        # Get actual filenames for this fold
+        train_files = [all_paths[i] for i in train_idx]
+        test_files  = [all_paths[i] for i in test_idx]
+    
+        # Save to text files
         with open(f"{folder}/fold_{fold+1}_train.txt", "w") as f:
-            f.write('\n'.join(map(str, train_idx)))
-
+            f.write('\n'.join(train_files))
+    
         with open(f"{folder}/fold_{fold+1}_test.txt", "w") as f:
-            f.write('\n'.join(map(str, test_idx)))
+            f.write('\n'.join(test_files))
+    
+        # Print fold info
+        print(f"\n==== FOLD {fold+1} ====")
+        print(f"Train files: {len(train_files)}, Test files: {len(test_files)}")
+        print("Sample train files:", train_files[:3])
+        print("Sample test files :", test_files[:3])
+    
+    # -----------------------------
+    # Optional: Verify no leakage
+    # -----------------------------
+    print("\nChecking for video leakage between train and test sets...")
+    for fold, (train_idx, test_idx) in enumerate(folds):
+        train_ids = set(groups[i] for i in train_idx)
+        test_ids  = set(groups[i] for i in test_idx)
+        overlap = train_ids & test_ids
+        print(f"Fold {fold+1}: Overlap = {len(overlap)}")  # Should be 0
 
         train_dataset = Subset(dataset, train_idx)
         test_dataset = Subset(dataset, test_idx)
