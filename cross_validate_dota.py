@@ -354,7 +354,9 @@ if __name__ == "__main__":
     k = opt.n_folds
     gkf = GroupKFold(n_splits=k)
     folds = []
-    
+    # List to store CSV rows
+    csv_rows = []
+
     for fold, (train_idx, test_idx) in enumerate(gkf.split(all_paths, groups=groups)):
         folds.append((train_idx, test_idx))
 
@@ -371,13 +373,27 @@ if __name__ == "__main__":
     
         with open(f"{folder}/fold_{fold+1}_test.txt", "w") as f:
             f.write('\n'.join(test_files))
+
+        # Prepare CSV rows
+        for f_name in train_files:
+            csv_rows.append({"file_name": f_name, "fold": fold_num, "train": 1, "test": 0})
+        for f_name in test_files:
+            csv_rows.append({"file_name": f_name, "fold": fold_num, "train": 0, "test": 1})
+
     
         # Print fold info
         print(f"\n==== FOLD {fold+1} ====")
         print(f"Train files: {len(train_files)}, Test files: {len(test_files)}")
         print("Sample train files:", train_files[:3])
         print("Sample test files :", test_files[:3])
-    
+
+    # Create DataFrame and remove duplicates (a file appears in only one fold)
+    df_idx = pd.DataFrame(csv_rows).drop_duplicates(subset=["file_name"])
+
+    # Save CSV
+    csv_path = os.path.join(folder, "folds_summary.csv")
+    df_idx.to_csv(csv_path, index=False)
+
     # -----------------------------
     # Optional: Verify no leakage
     # -----------------------------
