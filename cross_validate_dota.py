@@ -177,7 +177,7 @@ def test_model(epoch, model, test_dataloader, fold):
 def train(train_dataloader, test_dataloader, fold):
 
     # Define network
-    model = SpaceTempGoG_detr_dota(input_dim=opt.input_dim, embedding_dim=opt.embedding_dim,
+    model = STAGNet(input_dim=opt.input_dim, embedding_dim=opt.embedding_dim,
                                   img_feat_dim=opt.img_feat_dim, num_classes=opt.num_classes).to(device)
     print(model)
 
