@@ -344,7 +344,7 @@ if __name__ == "__main__":
         filename = os.path.basename(path).replace(".npz", "")
         # split only at the last '-'
         base = filename.split('-video')[0]
-        return base + '-video
+        return base + '-video'
     
     groups = [extract_video_id(p) for p in all_paths]
     print(f"Total unique videos: {len(set(groups))}")
