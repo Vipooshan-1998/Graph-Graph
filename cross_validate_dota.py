@@ -351,6 +351,7 @@ if __name__ == "__main__":
     # -----------------------------
     # Group K-Fold split
     # -----------------------------
+    k = opt.n_folds
     gkf = GroupKFold(n_splits=k)
     folds = []
     
