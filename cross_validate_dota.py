@@ -37,7 +37,7 @@ import scipy.io as io
 
 import sklearn
 from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GroupKFold
 import matplotlib.pyplot as plt
 
 import time
