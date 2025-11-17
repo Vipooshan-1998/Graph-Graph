@@ -353,7 +353,7 @@ if __name__ == "__main__":
     # Group K-Fold split
     # -----------------------------
     k = opt.n_folds
-    gkf = GroupKFold(n_splits=k)
+    gkf = GroupKFold(n_splits=k, shuffle=False, random_state=42)
     folds = []
     # List to store CSV rows
     csv_rows = []
