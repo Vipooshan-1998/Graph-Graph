@@ -370,17 +370,17 @@ if __name__ == "__main__":
         fold_no = fold+1
 
         # Save to text files
-        with open(f"{folder}/fold_{fold_no}_train.txt", "w") as f:
+        with open(f"{folder}/fold_{fold+1}_train.txt", "w") as f:
             f.write('\n'.join(train_files))
     
-        with open(f"{folder}/fold_{fold_no}_test.txt", "w") as f:
+        with open(f"{folder}/fold_{fold+1}_test.txt", "w") as f:
             f.write('\n'.join(test_files))
 
         # Prepare CSV rows
-        for f_name in train_files:
-            csv_rows.append({"file_name": f_name, "fold": fold_no, "train": 1, "test": 0})
+        # for f_name in train_files:
+        #     csv_rows.append({"file_name": f_name, "fold": fold+1})
         for f_name in test_files:
-            csv_rows.append({"file_name": f_name, "fold": fold_no, "train": 0, "test": 1})
+            csv_rows.append({"file_name": f_name, "test_fold": fold+1})
 
     
         # Print fold info
@@ -390,7 +390,7 @@ if __name__ == "__main__":
         print("Sample test files :", test_files[:3])
 
     # Create DataFrame and remove duplicates (a file appears in only one fold)
-    df_idx = pd.DataFrame(csv_rows).drop_duplicates(subset=["file_name"])
+    df_idx = pd.DataFrame(csv_rows)                     #.drop_duplicates(subset=["file_name"])
 
     # Save CSV
     csv_path = os.path.join(folder, "folds_summary.csv")
