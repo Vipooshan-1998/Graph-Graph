@@ -376,9 +376,9 @@ if __name__ == "__main__":
 
         # Prepare CSV rows
         for f_name in train_files:
-            csv_rows.append({"file_name": f_name, "fold": fold_num, "train": 1, "test": 0})
+            csv_rows.append({"file_name": f_name, "fold": fold+1, "train": 1, "test": 0})
         for f_name in test_files:
-            csv_rows.append({"file_name": f_name, "fold": fold_num, "train": 0, "test": 1})
+            csv_rows.append({"file_name": f_name, "fold": fold+1, "train": 0, "test": 1})
 
     
         # Print fold info
