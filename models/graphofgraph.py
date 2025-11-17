@@ -942,7 +942,7 @@ from .attention_modules import Memory_Attention_Aggregation, Auxiliary_Self_Atte
 # 		return logits_mc, probs_mc
 
 
-STAGNet - DoTA DADA
+# STAGNet - DoTA DADA
 from torch_geometric.nn import (
     GATv2Conv, 
     TopKPooling,
