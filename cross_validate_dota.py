@@ -332,9 +332,9 @@ if __name__ == "__main__":
         n_frames=opt.n_frames,
     )
 
-    # The dataset must have dataset.data_files
-    all_filenames = dataset.data_files
-    print(all_filenames)
+    # THIS is your filename list
+    all_filenames = dataset.feature_paths
+    print("Total files: ", len(all_filenames))
 
     folds = opt.n_folds
     kf = KFold(n_splits=folds, shuffle=True, random_state=42)
