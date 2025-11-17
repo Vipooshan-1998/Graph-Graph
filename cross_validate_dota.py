@@ -340,11 +340,11 @@ if __name__ == "__main__":
     # -----------------------------
     # Extract video IDs (group)
     # -----------------------------
-    def extract_video_id(path):
-        filename = os.path.basename(path).replace(".npz", "")
-        parts = filename.split('-')
-        # Remove the last part (augmentation index)
-        return '-'.join(parts[:-1])
+  def extract_video_id(path):
+      filename = os.path.basename(path).replace(".npz", "")
+      # split only at the last '-'
+      base = filename.split('-video')[0]
+      return base + '-video
     
     groups = [extract_video_id(p) for p in all_paths]
     print(f"Total unique videos: {len(set(groups))}")
