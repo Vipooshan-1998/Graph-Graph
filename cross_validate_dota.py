@@ -367,19 +367,20 @@ if __name__ == "__main__":
 
         folder = 'splt_idx'
         os.makedirs(folder, exist_ok=True)
-    
+        fold_no = fold+1
+
         # Save to text files
-        with open(f"{folder}/fold_{fold+1}_train.txt", "w") as f:
+        with open(f"{folder}/fold_{fold_no}_train.txt", "w") as f:
             f.write('\n'.join(train_files))
     
-        with open(f"{folder}/fold_{fold+1}_test.txt", "w") as f:
+        with open(f"{folder}/fold_{fold_no}_test.txt", "w") as f:
             f.write('\n'.join(test_files))
 
         # Prepare CSV rows
         for f_name in train_files:
-            csv_rows.append({"file_name": f_name, "fold": fold+1, "train": 1, "test": 0})
+            csv_rows.append({"file_name": f_name, "fold": fold_no, "train": 1, "test": 0})
         for f_name in test_files:
-            csv_rows.append({"file_name": f_name, "fold": fold+1, "train": 0, "test": 1})
+            csv_rows.append({"file_name": f_name, "fold": fold_no, "train": 0, "test": 1})
 
     
         # Print fold info
