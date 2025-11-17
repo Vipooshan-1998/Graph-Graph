@@ -48,6 +48,7 @@ import random
 from torchtnt.utils.flops import FlopTensorDispatchMode
 from collections import defaultdict
 import copy
+from thop import profile
 
 torch.manual_seed(0)  # 3407
 np.random.seed(0)
@@ -236,6 +237,9 @@ def train(train_dataloader, test_dataloader, fold):
             # ----------------------
             inputs = (X, edge_index, img_feat, video_adj_list, edge_embeddings, 
                       temporal_adj_list, temporal_edge_w, batch_vec)          # match forward signature
+            flops, params = profile(model, inputs=inputs)
+            print(f"Thop Total FLOPs: {flops}")            # only measure FLOPs for the first batch
+            print(f"Thop Total Params: {params}") 
             # flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
             # only measure FLOPs for the first batch
             if batch_i == 0:
